@@ -45,12 +45,20 @@ def get_ust10y():
 
 
 def yf_valuation(ticker, fcf_latest):
-    """返回 (pe, fcf_yield, mktcap)。取不到返回 (None,None,None)。"""
+    """返回 (pe, fcf_yield, mktcap)。取不到返回 None，绝不用 0 顶替。
+
+    ⚠️ 币种守卫：yfinance 的 marketCap 用交易货币(currency)，而财务数据用报表
+    货币(financialCurrency)。二者不同时(如台积电 ADR：USD 市值 / TWD 报表)直接
+    相除会把收益率放大约 32 倍。此时 FCF 收益率一律判为不可得。
+    """
     try:
         import yfinance as yf
         info = yf.Ticker(ticker).info
         pe = info.get("trailingPE")
         mktcap = info.get("marketCap")
+        cur, fcur = info.get("currency"), info.get("financialCurrency")
+        if cur and fcur and cur != fcur:
+            return pe, None, mktcap          # 币种错配 → 不算收益率
         fcfy = (fcf_latest / mktcap) if (fcf_latest and mktcap) else None
         return pe, fcfy, mktcap
     except Exception:
