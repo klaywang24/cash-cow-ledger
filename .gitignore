@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .DS_Store
 data/fundamentals_cache/
+
+# 第二本（集中判断书）= 个人裁量持仓，不进公开仓库
+data/private/
