@@ -209,3 +209,26 @@
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1.0 | 2026-07-18 | 首版。开账前定稿并公开锚定；开账日定为 2026-07-20。 |
+
+---
+
+## 附二:实现状态对照(防「文档写了、代码没有」)
+
+本表用于核验方法论的每一条是否真的落进了代码。**新增规则时必须同步更新本表**——
+「文档承诺了但代码没实现」是最容易在半年后变成违规的一类缺陷。
+
+| 方法论条款 | 实现位置 | 状态 |
+|---|---|---|
+| §1 数据源与 XBRL 六坑 | `src/edgar.py` / `src/metrics.py` | ✅ |
+| §2 L1 宇宙与金融/REIT 剔除 | `src/run_screen.py::load_universe` | ✅ |
+| §3 L2 防雷 | `src/screen.py::screen_us` | ✅ |
+| §4 L3 质量 + 营业利润率兜底 | `src/screen.py::screen_us` | ✅ |
+| §5 L4 估值 | `src/screen.py::apply_valuation` | ✅ |
+| §6 L5 数量与综合得分 | `src/run_screen.py::score_pool` / `build_portfolio` | ✅ |
+| §7.1 审查时点(1月/7月) | `src/reconstitute.py` + `daily.yml` | ✅ |
+| §7.2 名次缓冲带 + 双向动量否决 | `src/reconstitute.py` | ✅ |
+| §7.3 权重与「入场后不再平衡」 | `src/build_portfolio.py` / `open_books.py` / `reconstitute.py` | ✅ |
+| §7.4 换手预算告警 | `src/reconstitute.py` | ✅ |
+| §8 指数点位(份数机制) | `src/daily_level.py` | ✅ |
+| §9 不可篡改(公开库/Wayback/提交分类) | `.github/workflows/daily.yml` | ✅ |
+| — 台账新鲜度监控 | `src/check_freshness.py` + `monitor.yml` | ✅ |
