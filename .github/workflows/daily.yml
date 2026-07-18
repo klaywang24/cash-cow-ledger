@@ -35,6 +35,19 @@ jobs:
       - name: open books (one-time, idempotent)
         run: python -m src.open_books
 
+      # 半年一次的成分调整：reconstitute 自身判定是否审查月、本月是否已调过，
+      # 非审查期立即退出。审查期需要最新排名，故先跑筛选。
+      - name: reconstitute (Jan / Jul only, self-gating)
+        run: |
+          if [ -f data/ledger/constituents.csv ]; then
+            MONTH=$(date -u +%m)
+            if [ "$MONTH" = "01" ] || [ "$MONTH" = "07" ]; then
+              python -m src.run_screen
+              python -m src.build_portfolio
+            fi
+            python -m src.reconstitute
+          fi
+
       - name: compute index level
         run: python -m src.daily_level
 
