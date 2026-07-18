@@ -9,7 +9,7 @@ meta:
   index_name_en: "Cash Cow Ledger"
   # 本系统主产品是【向前跟踪的观察指数(paper index)】，不是回测。
   # 回测仅作参考，且所有回测输出必须标注前视/幸存者偏差风险。
-  inception_date: null          # 开账日：跑第一版正式台账那天填入（YYYY-MM-DD）
+  inception_date: "2026-07-20"  # 开账日（周一）。此日之后一切进历史，改规则须版本化留痕。
   base_currency: "USD"
 
 # ---- SEC EDGAR：美股财务主源（实时、权威、全历史 XBRL ≈2009+） ----
@@ -94,6 +94,13 @@ benchmarks:
   primary: "SPY"                # 主裁判：市值加权、零成本动量
   reference: ["QQQ"]            # 参照线，不作成败裁判（避免幸存者偏差）
   peer_products: ["COWZ", "QUAL"]   # 同类因子产品：检验本策略是否只是复制了货架商品
+
+# ---- 管线监控（防"静默死亡"） ----
+monitoring:
+  # 台账最新一行超过此天数未更新即告警。含周末与假期，故给 4 天余量。
+  # ⚠️ 判据是【台账数据本身的新鲜度】，不是工作流的自我报告——
+  #    工作流"成功"但没产出任何数据，正是静默死亡的典型形态。
+  max_stale_days: 4
 
 # ---- 数据缺失策略（硬约束） ----
 data_policy:

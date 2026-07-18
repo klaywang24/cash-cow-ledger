@@ -1,96 +1,149 @@
-# 现金牛台账 · Cash Cow Ledger
+# Cash Cow Ledger · 现金牛台账
 
-一个**向前跟踪的观察指数(paper index)**:按公开、固定、可复现的规则,从美股中筛选
-"质量现金流"公司,每日计算指数点位,每半年调整一次成分。
+> A **forward-tracked paper index** of U.S. quality-cash-flow companies. Rules are
+> published, frozen, and third-party timestamped **before** the record begins —
+> so they cannot be tuned after the fact. **It does not promise to beat anything.**
+> It promises to be reproducible, and never backfilled.
 
-**规则见 [METHODOLOGY.md](METHODOLOGY.md)(v1.0)。`config.yaml` 是它的可执行副本。**
+[![daily-index](https://github.com/klaywang24/cash-cow-ledger/actions/workflows/daily.yml/badge.svg)](https://github.com/klaywang24/cash-cow-ledger/actions/workflows/daily.yml)
+[![freshness-monitor](https://github.com/klaywang24/cash-cow-ledger/actions/workflows/monitor.yml/badge.svg)](https://github.com/klaywang24/cash-cow-ledger/actions/workflows/monitor.yml)
+[![License](https://img.shields.io/badge/license-PolyForm--Noncommercial--1.0.0-4a5d3a)](LICENSE)
+[![Methodology](https://img.shields.io/badge/methodology-v1.0-2b5f8f)](METHODOLOGY.md)
+[![Data](https://img.shields.io/badge/data-SEC%20EDGAR-6b4c9a)](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
+[![Inception](https://img.shields.io/badge/inception-2026--07--20-a0392f)](data/ledger/)
+[![中文](https://img.shields.io/badge/%E4%B8%AD%E6%96%87-README-2b5f8f)](README.zh.md)
 
----
-
-## 它承诺什么,不承诺什么
-
-**不承诺**:跑赢标普 500 或任何其他指数。它没有这个目标,也不宣称有这个能力。
-
-**承诺两件事:**
-
-1. **可复现** — 任何人拿本仓库的方法论 + 公开免费的 SEC EDGAR 数据,能算出与本台账
-   **完全相同**的结果。数据源、每一条阈值、每一个已知的 XBRL 陷阱及其处理方式,全部公开。
-2. **不回填** — 规则在开账**之前**就已公开钉死并被时间戳锚定,**绝不因结果好看与否而事后修改**。
-   跑输照登,永不删输家。
-
-**这是一个指数,不是一份交易记录。** 和所有指数一样,它不含交易滑点、税务与流动性成本。
-
-**回测不是本产品。** 若日后发布任何回测,必须显著标注存在前视偏差与幸存者偏差风险。
+**Methodology: [METHODOLOGY.md](METHODOLOGY.md) (v1.0)** — `config.yaml` is its executable copy.
 
 ---
 
-## 为什么这件事值得做
+## What it promises, and what it does not
 
-能写成规则的选股方法,华尔街基本都已产品化(COWZ、QUAL 等),而因子在论文发表后
-超额收益平均衰减约一半。所以本项目的稀缺性**不在规则本身**——规则是公开的,欢迎抄。
+**It does not promise** to outperform the S&P 500 or any other index. That is not
+its goal, and it makes no such claim.
 
-稀缺的是**那本向前滚动、不可篡改的账**:规则在结果揭晓之前就被公开钉死,此后每一天
-被第三方时间戳记录。**快照可以抄走,那本账抄不走。**
+**It promises exactly two things:**
+
+1. **Reproducibility** — anyone with this repository's methodology and the free,
+   public SEC EDGAR API can compute **identical** results. Every data source,
+   every threshold, and every known XBRL pitfall (with its handling) is documented.
+2. **No backfilling** — the rules were published and timestamped *before* inception
+   and are never revised to flatter results. Losing periods are published the same
+   as winning ones; **losers are never deleted**.
+
+**This is an index, not a trading record.** Like every index, it excludes slippage,
+taxes, and liquidity costs.
+
+**Backtests are not the product.** Any backtest published later must be prominently
+labeled as carrying look-ahead and survivorship bias.
 
 ---
 
-## 五层漏斗(阈值见 METHODOLOGY)
+## Why this exists
 
-| 层 | 干什么 | 堵的坑 |
+Any stock-selection rule that can be written down has already been productized by
+Wall Street (COWZ, QUAL, and dozens more), and factor premia decay by roughly half
+after publication. So the scarce thing here is **not the rules** — those are public,
+and you are welcome to copy them.
+
+What is scarce is **the forward, tamper-evident ledger**: rules nailed down in public
+*before* any result existed, and every day since recorded under third-party timestamps.
+**A snapshot can be copied. The ledger cannot.**
+
+---
+
+## The five-layer funnel
+
+| Layer | What it does | The trap it blocks |
 |---|---|---|
-| **L1 宇宙** | 标普500快照,剔除资产负债表型金融(银行/保险/消费金融)与 REIT | 框架对它们不适用 |
-| **L2 防雷** | 利润远超经营现金流、应收增速>收入×2、净股本不降反升、净负债/EBITDA 过高 | 造假与财技 |
-| **L3 质量** | FCF 连续≥7年为正且波动可控、毛利率≥30%且十年不下行、ROIC≥12%、资产增速≤收入增速 | 周期顶部的假现金牛、帝国建设 |
-| **L4 估值** | FCF 收益率 ≥ 10年美债 或 PE ≤ 30 | 好公司买太贵 |
-| **L5 数量** | 综合得分取前 20 | — |
+| **L1 Universe** | S&P 500 snapshot, excluding balance-sheet financials (banks / insurers / consumer finance) and REITs | The FCF–margin–ROIC frame is meaningless for them |
+| **L2 Landmines** | Drop on: earnings far exceeding operating cash flow · receivables growing >2× revenue · share count rising despite buybacks · net debt/EBITDA too high | Accounting games and financial engineering |
+| **L3 Quality** | Require all of: FCF positive ≥7 consecutive years with low variance · gross margin ≥30% and not declining over 10 years · 5-year average ROIC ≥12% · asset growth ≤ revenue growth | Cyclical peaks masquerading as cash cows; empire-building |
+| **L4 Valuation** | FCF yield ≥ 10-year Treasury **or** P/E ≤ 30 | Paying too much for a good business |
+| **L5 Count** | Top 20 by composite score | — |
 
-**权重**:入场时按综合得分加权、单只封顶 8%;**入场后永不再平衡**,让赢家自然漂移。
-**调仓**:每年 1 月、7 月首个交易日各一次;名次缓冲带(进 ≤20 / 出 >40)以压低换手。
+**Weighting** — score-weighted at entry, capped at 8% per name; **never rebalanced
+afterwards**, so winners are allowed to drift upward.
 
----
+**Reconstitution** — first trading day of January and July only. A rank buffer
+(enter at ≤20, exit only past 40) keeps turnover low.
 
-## 数据源
-
-- **美股财务**:SEC EDGAR `companyfacts` API(免费、无需密钥、XBRL 全历史约 2009 起)
-- **价格 / 估值**:yfinance(仅取价格、市值、市盈率)
-
-只用 `us-gaap` 税目、只取 `10-K`/`10-K/A` 的年度值。只报 20-F 的外国私人发行人
-**结构上不在本指数范围内**——其数据无法用本管线机器复现。
-
-**数据缺失一律标记 `data_incomplete` 并排除,禁止用 0、估算值或行业均值填充。**
-
-EDGAR 的六个已知陷阱(跨准则换标签、量纲变化、拆股跳变、停报导致的陈旧值、
-单步式利润表、币种错配)及其处理方式,全部写在 [METHODOLOGY.md §1.2](METHODOLOGY.md)。
+The choice of N = 20 is derived, not arbitrary: diversification benefits saturate
+between 15 and 25 names; a mechanical screen has low information coefficient per
+name, so by IR ≈ IC × √breadth it should not be concentrated; but sector
+concentration caps *effective* breadth near 25. The two forces cross at 20–25.
 
 ---
 
-## 用法
+## Data sources
+
+- **U.S. fundamentals** — [SEC EDGAR `companyfacts` API](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
+  (free, no key, full XBRL history from ~2009)
+- **Prices / valuation** — yfinance (price, market cap, trailing P/E only)
+
+Only `us-gaap` tags and annual `10-K` / `10-K/A` values are used. Foreign private
+issuers filing solely 20-F are **structurally out of scope** — their statements
+cannot be reproduced by this pipeline.
+
+**Missing data is flagged `data_incomplete` and excluded. Never filled with zero,
+estimates, or industry averages.**
+
+Six known EDGAR pitfalls — tag changes across accounting standards, magnitude shifts
+within a series, stock-split discontinuities, stale values after a company stops
+reporting a subtotal, single-step income statements, and currency mismatches — are
+documented with their handling in [METHODOLOGY.md §1.2](METHODOLOGY.md).
+
+---
+
+## Usage
 
 ```bash
-python -m src.run_screen       # 跑 L1-L5 漏斗，输出候选与全量淘汰台账
-python -m src.build_portfolio  # 按得分加权构建成分与权重
-python -m src.daily_level      # 计算当日指数点位（未开账时安全退出）
+python -m src.run_screen       # run the L1–L5 funnel; writes candidates + full rejection ledger
+python -m src.build_portfolio  # score-weighted constituents and weights
+python -m src.open_books       # one-time: open the ledger on the inception date
+python -m src.daily_level      # compute today's index level (exits safely before inception)
 ```
 
-数据体检(改动提取或指标逻辑后务必先跑):
+Data health checks (run these after touching extraction or metric logic):
 
 ```bash
-python tests/probe_edgar.py    # 原始年度序列
-python tests/probe_metrics.py  # 派生信号 + 归一化验证
+python tests/probe_edgar.py    # raw annual series
+python tests/probe_metrics.py  # derived signals + normalization checks
 ```
 
 ---
 
-## 不可篡改性
+## Tamper-evidence
 
-- 本仓库公开托管,提交时间由 GitHub 第三方背书。
-- 每次数据更新后向 Internet Archive (Wayback Machine) 提交快照。
-- **提交类型严格分离**:`methodology:` = 规则变更,`data:` = 数据更新。
-  任何第三方都可沿提交历史核验「某段时间内规则未被改动」。
+- Public repository; commit times are attested by GitHub as a third party.
+- Every data update is snapshotted to the [Internet Archive](https://web.archive.org/).
+- **Commit types are strictly separated**: `methodology:` = rule changes, `data:` =
+  data updates. Anyone can walk the history and verify that the rules went untouched
+  across any given period.
+- A separate **freshness monitor** fails loudly if the ledger stops updating — a
+  silent gap in the record is the one thing that would undermine all of the above.
 
 ---
 
-## 免责
+## Ledger
 
-本仓库所有内容仅供信息与研究用途,**不构成任何投资建议**,不推荐任何证券。
-市场有风险,决策请独立判断。
+| | |
+|---|---|
+| Inception | **2026-07-20** |
+| Base level | 100 |
+| Constituents | 20 |
+| Reconstitution | 1st trading day of January and July |
+| Files | [`data/ledger/`](data/ledger/) — `constituents.csv`, `index_level.csv` |
+
+---
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE) — free for noncommercial use; commercial use
+requires a separate license.
+
+## Disclaimer
+
+Everything in this repository is for informational and research purposes only. It is
+**not investment advice** and recommends no security. Markets carry risk; make your
+own decisions.

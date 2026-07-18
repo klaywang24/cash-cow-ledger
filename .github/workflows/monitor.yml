@@ -1,0 +1,25 @@
+name: freshness monitor
+
+# 防「管线静默死亡」：daily.yml 若彻底报错，GitHub 会原生发失败邮件；
+# 但它也可能【报告成功却没产出任何数据】——那种情况下所有绿灯都是假的。
+# 本工作流独立读取台账数据本身的最新日期，过期就以非零码失败，
+# 从而触发 GitHub 原生失败通知（邮件），而不是推给一个没人看的频道。
+#
+# ⚠️ 本工作流绝不使用 if: always() 之类会掩盖失败的写法——
+#    监控器自己响了假警报，比没有监控更危险。
+on:
+  schedule:
+    - cron: "0 13 * * *"     # 每天 13:00 UTC（约美东 09:00，早于当日更新，查的是昨天为止的状态）
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet pyyaml
+      - name: check ledger freshness
+        run: python -m src.check_freshness

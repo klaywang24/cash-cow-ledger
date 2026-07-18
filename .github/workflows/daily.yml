@@ -23,6 +23,18 @@ jobs:
       - name: install deps
         run: pip install --quiet requests pyyaml pandas yfinance
 
+      # 开账日（及每年1月/7月首个交易日的审查）需要先跑筛选与成分构建。
+      # open_books 自身幂等：已开账或未到开账日都会立即退出。
+      - name: screen + build (only needed at inception / reconstitution)
+        run: |
+          if [ ! -f data/ledger/constituents.csv ]; then
+            python -m src.run_screen
+            python -m src.build_portfolio
+          fi
+
+      - name: open books (one-time, idempotent)
+        run: python -m src.open_books
+
       - name: compute index level
         run: python -m src.daily_level
 
