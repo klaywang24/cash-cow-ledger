@@ -138,6 +138,8 @@ TAGS = {
     "capex": ["PaymentsToAcquirePropertyPlantAndEquipment",
               "PaymentsToAcquireProductiveAssets"],
     "operating_income": ["OperatingIncomeLoss"],
+    "interest_expense": ["InterestExpense", "InterestExpenseNonoperating",
+                         "InterestAndDebtExpense", "InterestIncomeExpenseNet"],
     "assets": ["Assets"],
     "equity": ["StockholdersEquity",
                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
@@ -158,8 +160,8 @@ TAGS = {
 }
 
 FLOW = {"revenue", "gross_profit", "cost_of_revenue", "net_income", "ocf",
-        "capex", "operating_income", "dda", "income_tax", "pretax_income",
-        "shares"}   # 加权股本是区间(duration)概念
+        "capex", "operating_income", "interest_expense", "dda", "income_tax",
+        "pretax_income", "shares"}   # 加权股本是区间(duration)概念
 
 
 def extract_all(edgar: "Edgar", ticker: str) -> Optional[dict]:

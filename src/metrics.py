@@ -95,14 +95,25 @@ def gross_margin_series(d: dict) -> dict[int, float]:
     return out
 
 
+def ebit_series(d: dict) -> dict[int, float]:
+    """营业利润(EBIT)：优先 OperatingIncomeLoss；缺失则用 税前利润+利息费用 回退。
+    很多公司(单步式利润表)不报 OperatingIncomeLoss，回退能救回它们。"""
+    oi, pretax, intexp = d["operating_income"], d["pretax_income"], d["interest_expense"]
+    out = dict(oi)
+    for y in pretax:
+        if y not in out and y in intexp:
+            out[y] = pretax[y] + intexp[y]     # EBIT ≈ 税前 + 利息
+    return out
+
+
 def roic_series(d: dict) -> dict[int, float]:
     """ROIC ≈ NOPAT / 投入资本。
-    NOPAT = 营业利润 × (1 − 有效税率)；投入资本 = 权益 + 总债务 − 现金。"""
-    oi, eq, cash = d["operating_income"], d["equity"], d["cash"]
+    NOPAT = EBIT × (1 − 有效税率)；投入资本 = 权益 + 总债务 − 现金。"""
+    ebit, eq, cash = ebit_series(d), d["equity"], d["cash"]
     ltd, ltdc = d["lt_debt"], d["lt_debt_current"]
     tax, pretax = d["income_tax"], d["pretax_income"]
     out = {}
-    for y in oi:
+    for y in ebit:
         if y not in eq:
             continue
         debt = ltd.get(y, 0) + ltdc.get(y, 0)
@@ -115,17 +126,16 @@ def roic_series(d: dict) -> dict[int, float]:
             r = tax[y] / pretax[y]
             if 0 <= r <= 0.6:
                 rate = r
-        nopat = oi[y] * (1 - rate)
-        out[y] = nopat / invested
+        out[y] = ebit[y] * (1 - rate) / invested
     return out
 
 
 def net_debt_to_ebitda(d: dict, year: int) -> Optional[float]:
-    oi, dda, cash = d["operating_income"], d["dda"], d["cash"]
+    ebit, dda, cash = ebit_series(d), d["dda"], d["cash"]
     ltd, ltdc = d["lt_debt"], d["lt_debt_current"]
-    if year not in oi or year not in dda:
+    if year not in ebit or year not in dda:
         return None
-    ebitda = oi[year] + dda[year]
+    ebitda = ebit[year] + dda[year]
     if ebitda <= 0:
         return None
     net_debt = ltd.get(year, 0) + ltdc.get(year, 0) - cash.get(year, 0)
@@ -194,27 +204,37 @@ def derive(d: dict, cfg: dict) -> dict:
     gm = gross_margin_series(d)
     roic = roic_series(d)
 
-    # L3: FCF 连续为正年数 + 变异系数
-    fcf_years = sorted(fcf)
-    streak = 0
-    for y in reversed(fcf_years):
-        if fcf[y] > 0:
-            streak += 1
-        else:
-            break
-    recent_fcf = [fcf[y] for y in fcf_years[-L3["fcf_positive_years"]:]]
-    fcf_cv = (pstdev(recent_fcf) / mean(recent_fcf)
-              if len(recent_fcf) >= 2 and mean(recent_fcf) > 0 else None)
+    # 陈旧度锚：以收入最近财年为基准，指标须来自 ref_fy-1 及以后，否则视为缺失。
+    # （防 HAL 式：停报毛利后拿 8 年前的旧值蒙混过关。）
+    ref_fy = max(d["revenue"]) if d["revenue"] else None
+    def _recent(y):
+        return ref_fy is not None and y is not None and y >= ref_fy - 1
 
-    # L3: 毛利率趋势（首尾比，不下行 = 末 ≥ 首 × 0.95）
+    # L3: FCF 连续为正年数 + 变异系数（FCF 须为近年数据，否则整体作缺失）
+    fcf_years = sorted(fcf)
+    if fcf_years and not _recent(fcf_years[-1]):
+        streak, fcf_cv = None, None
+    else:
+        streak = 0
+        for y in reversed(fcf_years):
+            if fcf[y] > 0:
+                streak += 1
+            else:
+                break
+        recent_fcf = [fcf[y] for y in fcf_years[-L3["fcf_positive_years"]:]]
+        fcf_cv = (pstdev(recent_fcf) / mean(recent_fcf)
+                  if len(recent_fcf) >= 2 and mean(recent_fcf) > 0 else None)
+
+    # L3: 毛利率趋势（首尾比，不下行 = 末 ≥ 首 × 0.95）+ 陈旧度闸
     gm_yrs = _last_n_consecutive(gm, L3["gross_margin_trend_years"])
     gm_trend_ok = (gm[gm_yrs[-1]] >= gm[gm_yrs[0]] * 0.95
                    if len(gm_yrs) >= 2 else None)
-    gm_latest = gm[max(gm)] if gm else None
+    gm_latest = gm[max(gm)] if gm and _recent(max(gm)) else None
 
-    # L3: ROIC 近 M 年均值
+    # L3: ROIC 近 M 年均值（须为近年数据）
     roic_yrs = _last_n_consecutive(roic, L3["roic_lookback_years"])
-    roic_avg = mean([roic[y] for y in roic_yrs]) if roic_yrs else None
+    roic_avg = (mean([roic[y] for y in roic_yrs])
+                if roic_yrs and _recent(max(roic_yrs)) else None)
 
     # L3: 总资产增速 ≤ 收入增速（近 N 年）
     n = L3["asset_growth_le_revenue_years"]
