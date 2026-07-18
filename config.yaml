@@ -1,0 +1,90 @@
+# =====================================================================
+#  现金牛台账 (Cash Cow Ledger) — 参数配置
+#  所有筛选参数集中于此，禁止在代码里硬编码阈值。
+#  改规则 = 改本文件，代码不动。
+# =====================================================================
+
+meta:
+  index_name: "现金牛台账"
+  index_name_en: "Cash Cow Ledger"
+  # 本系统主产品是【向前跟踪的观察指数(paper index)】，不是回测。
+  # 回测仅作参考，且所有回测输出必须标注前视/幸存者偏差风险。
+  inception_date: null          # 开账日：跑第一版正式台账那天填入（YYYY-MM-DD）
+  base_currency: "USD"
+
+# ---- SEC EDGAR：美股财务主源（实时、权威、全历史 XBRL ≈2009+） ----
+edgar:
+  # SEC 要求带真实联系人的 User-Agent，否则会被限流/封。
+  user_agent: "Cash Cow Ledger research (klaywang24+cashcowledger@gmail.com)"
+  rate_limit_per_sec: 8         # SEC 上限 10/s，留余量
+  cache_dir: "data/fundamentals_cache"
+  cache_days: 7                 # companyfacts 本地缓存有效期（天）
+
+# ---- L1 池子 ----
+L1_universe:
+  source: "sp500"              # 起步用标普 500（Wikipedia，易得）；扩到 russell1000 是改这一行
+  min_market_cap_usd: 2.0e9     # 市值下限
+  global_watchlist: "data/global_watchlist.csv"   # 手工维护的非美股白名单（爱马仕等）
+
+# ---- L2 防雷排除（任一命中即剔除） ----
+L2_landmines:
+  # 净利润 / 经营现金流 连续 N 年 > 阈值（利润远超现金流 = 盈利质量存疑）
+  ni_to_ocf_ratio_max: 1.3
+  ni_to_ocf_consecutive_years: 3
+  # 应收账款增速 > 收入增速 × 倍数，连续 N 年
+  ar_vs_rev_growth_multiple: 2.0
+  ar_vs_rev_consecutive_years: 2
+  # 净股本近 N 年不降反升 且 有回购（回购被股权激励吞掉）
+  net_share_lookback_years: 3
+  # 净负债 / EBITDA 上限
+  net_debt_to_ebitda_max: 3.0
+
+# ---- L3 质量入选（须全部满足） ----
+L3_quality:
+  fcf_positive_years: 7         # FCF 连续 ≥N 年为正（这是全套设计最关键的单一参数）
+  fcf_cv_max: 0.60              # FCF 变异系数上限（标准差/均值），过滤周期顶部假现金牛
+  gross_margin_min: 0.30        # 毛利率下限
+  gross_margin_trend_years: 10  # 近 N 年毛利率趋势不下行
+  roic_min: 0.12                # ROIC 近 M 年均值下限
+  roic_lookback_years: 5
+  asset_growth_le_revenue_years: 3   # 总资产增速 ≤ 收入增速（近 N 年，资本纪律）
+
+# ---- L4 估值约束（取宽松者通过） ----
+L4_valuation:
+  fcf_yield_min_vs_ust10y: true # FCF 收益率 ≥ 10 年期美债收益率
+  ust10y_fallback: 0.045        # 拿不到实时美债收益率时的兜底值
+  pe_max: 30                    # 或 P/E ≤ 上限
+
+# ---- L5 数量 ----
+L5_count:
+  min_holdings: 15
+  max_holdings: 30
+  score_weights:                # 综合得分权重（用于排名取前 N）
+    fcf_yield: 0.30
+    roic: 0.25
+    gross_margin: 0.20
+    fcf_stability: 0.15         # = 1 - 归一化CV
+    low_asset_growth: 0.10
+
+# ---- 交易与权重规则（Phase 2 落地，先留位） ----
+rules:
+  buffer_enter_pct: 0.20        # 综合排名前 20% 才可新入选
+  buffer_exit_pct: 0.40         # 跌出前 40% 才剔除（宽缓冲带）
+  momentum_veto_ma_days: 200    # 新买入须在 200 日均线上方；剔除时若仍在线上延迟一个审查期
+  weighting: "fcf_absolute"     # 入选按 FCF 绝对额加权，之后不再平衡（让权重漂移）
+  review_frequency: "semiannual"
+  turnover_budget_annual: 0.25  # 每年换手 ≤ 25%，超限报警
+  exception_slots: 3            # ≤3 只规则外持仓
+  exception_cap_pct: 0.08       # 每只上限 8%
+
+# ---- 基准（Phase 2 对比用） ----
+benchmarks:
+  primary: "SPY"                # 主裁判：市值加权、零成本动量
+  reference: ["QQQ"]            # 参照线，不作成败裁判（避免幸存者偏差）
+  peer_products: ["COWZ", "QUAL"]   # 同类因子产品：检验本策略是否只是复制了货架商品
+
+# ---- 数据缺失策略（硬约束） ----
+data_policy:
+  # 财务数据缺失时明确标记为 MISSING，禁止静默填充或跳过。
+  # 任一必需字段缺失 → 该股标记 data_incomplete，不参与打分，单独列出。
+  on_missing: "flag_exclude"

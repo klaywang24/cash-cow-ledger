@@ -1,0 +1,4 @@
+# 决策日志：每一次成分变更（新增/剔除/例外保留）必须在此留痕，否则系统拒绝执行变更。
+# action: ADD / DROP / EXCEPTION_HOLD / EXCEPTION_REVIEW
+# 这是整套系统里最不可知变量（你自己判断的对错）的唯一记录；三年后它比组合本身更值钱。
+date,ticker,action,rank_at_action,price_at_action,reason

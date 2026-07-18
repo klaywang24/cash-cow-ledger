@@ -1,0 +1,5 @@
+# 手工维护的全球白名单（非美股，不在 SEC EDGAR 内，基本面手工填、标来源与 as_of）
+# 质量字段（fcf_positive_7y/gross_margin/roic_avg/net_debt_ebitda）为人工核对年报后填入；
+# 估值字段（pe/fcf_yield）可随价格刷新。source 与 as_of 必填，便于追溯。
+ticker,name,market,currency,fcf_positive_7y,gross_margin,roic_avg,net_debt_ebitda,pe,fcf_yield,as_of,source,note
+RMS.PA,Hermès International,Euronext Paris,EUR,true,0.711,0.252,-1.5,39.1,0.023,2026-07-17,yfinance+annual_report,毛利率/营业利润率/净现金常年稳定；ROIC 以 ROE 25.2%近似（净现金公司ROIC更高）；FCF常年为正已人工核对
