@@ -48,7 +48,7 @@ def yf_valuation(ticker, fcf_latest):
     """返回 (pe, fcf_yield, mktcap)。取不到返回 None，绝不用 0 顶替。
 
     ⚠️ 币种守卫：yfinance 的 marketCap 用交易货币(currency)，而财务数据用报表
-    货币(financialCurrency)。二者不同时(如台积电 ADR：USD 市值 / TWD 报表)直接
+    货币(financialCurrency)。二者不同时(部分 ADR：USD 市值 / 本币报表)直接
     相除会把收益率放大约 32 倍。此时 FCF 收益率一律判为不可得。
     """
     try:
@@ -92,7 +92,7 @@ def main():
                  ("user_agent", "rate_limit_per_sec", "cache_dir", "cache_days")})
     universe = load_universe()
     ust10y = get_ust10y()
-    print(f"[{TODAY}] L1 宇宙 = {len(universe)} 只美股 (标普500快照) + 手工白名单")
+    print(f"[{TODAY}] L1 宇宙 = {len(universe)} 只美股（标普500快照，已剔除资产负债表金融与REIT）")
     print(f"L4 估值锚：10年期美债 = {ust10y*100:.2f}%\n")
 
     all_recs, quality_pass = [], []
@@ -122,38 +122,16 @@ def main():
         if r["status"] == "pass_valuation":
             val_pass.append(r)
 
-    # 手工白名单（爱马仕等）：走同一 L4 估值逻辑，质量为人工核对
-    manual = load_manual_watchlist(ust10y)
-    for r in manual:
-        all_recs.append(r)
-        if r["status"] == "pass_valuation":
-            val_pass.append(r)
-
     # L5：打分、排名、取前 N
+    # 注：本指数仅含美股 / 仅取 EDGAR（见 METHODOLOGY §1）。任何需要人工录入
+    # 基本面的标的（外国私人发行人等）都不可机器复现，故结构上不在本指数范围内。
     score_pool(val_pass)
     val_pass.sort(key=lambda r: r["score"], reverse=True)
-    lo, hi = cfg["L5_count"]["min_holdings"], cfg["L5_count"]["max_holdings"]
+    lo, hi = cfg["L5_count"]["min_holdings"], cfg["L5_count"]["target_holdings"]
     candidates = val_pass[:hi]
 
     write_outputs(all_recs, candidates, val_pass, ust10y)
     print_summary(all_recs, quality_pass, val_pass, candidates, lo, hi)
-
-
-def load_manual_watchlist(ust10y):
-    recs = []
-    path = ROOT / "data/global_watchlist.csv"
-    for row in csv.DictReader(l for l in open(path) if not l.startswith("#")):
-        r = {"ticker": row["ticker"], "entity": row["name"], "source": "manual",
-             "fcf_positive_streak": None,
-             "gross_margin_latest": float(row["gross_margin"]),
-             "roic_avg": float(row["roic_avg"]),
-             "fcf_cv": None, "asset_cagr": 0.0, "rev_cagr": None,
-             "net_debt_ebitda": float(row["net_debt_ebitda"]),
-             "fcf_latest": None, "mktcap": None, "data_incomplete": False,
-             "note": row.get("note", "")}
-        apply_valuation(r, float(row["pe"]), float(row["fcf_yield"]), ust10y, cfg)
-        recs.append(r)
-    return recs
 
 
 def write_outputs(all_recs, candidates, val_pass, ust10y):
@@ -190,7 +168,7 @@ def print_summary(all_recs, quality_pass, val_pass, candidates, lo, hi):
         print(f"{i:>3} {r['ticker']:7} {r.get('score',0):>6.3f} "
               f"{_pct(r.get('fcf_yield')):>8} {_pct(r.get('roic_avg')):>6} "
               f"{_pct(r.get('gross_margin_latest')):>6} {_num(r.get('pe')):>6} "
-              f"{str(r.get('fcf_positive_streak') or '手工'):>6}  {r.get('entity')}")
+              f"{str(r.get('fcf_positive_streak') or '--'):>6}  {r.get('entity')}")
     if len(candidates) < lo:
         print(f"\n⚠️ 候选不足下限 {lo}：当前规则偏严或估值层杀太多，需人工判断是否放宽。")
 

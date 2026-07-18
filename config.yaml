@@ -24,7 +24,6 @@ edgar:
 L1_universe:
   source: "sp500"              # 起步用标普 500（Wikipedia，易得）；扩到 russell1000 是改这一行
   min_market_cap_usd: 2.0e9     # 市值下限
-  global_watchlist: "data/global_watchlist.csv"   # 手工维护的非美股白名单（爱马仕等）
   # FCF/毛利率/ROIC 框架对资产负债表型金融(银行/保险/消费金融)和 REIT 没意义 → L1 剔除。
   # 但资产轻的金融(支付网络、交易所&数据商)有真 FCF 和利润率 → 保留。
   exclude_sectors: ["Real Estate"]
@@ -88,7 +87,7 @@ rules:
   review_months: [1, 7]         # 每年1月/7月首个交易日审查；其余时间成分一律不动
   turnover_budget_annual: 0.25  # 换手超此值记录告警（只记录，不干预规则）
   # ⚠️ 例外条款已删除。第一本必须 100% 机械可复现：任何裁量（含"人工确认变更"）
-  # 都会使它不可审计、不可授权。一切裁量持仓进第二本 data/book2_conviction.csv。
+  # 都会使它不可审计、不可授权。裁量持仓一律不进本指数。
 
 # ---- 基准（Phase 2 对比用） ----
 benchmarks:

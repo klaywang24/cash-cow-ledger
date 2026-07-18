@@ -6,8 +6,7 @@
   - 仅在入场时封顶 8%，超出部分按比例分给未封顶者（迭代至收敛）
   - 入场后永不再平衡：权重随价格漂移，让赢家自己膨胀
 
-第二本（集中判断书）不在此计算——它是 data/book2_conviction.csv，纯手工，
-由你的判断决定，与本文件的机械逻辑彻底隔离。
+本指数不含任何人工裁量成分；裁量持仓（如有）记录于本仓库之外。
 """
 from __future__ import annotations
 import sys, csv, pathlib, datetime as dt
@@ -70,7 +69,6 @@ def main():
 
     write_book1(book1)
     show(book1)
-    show_book2()
 
 
 def write_book1(rows):
@@ -105,15 +103,6 @@ def show(rows):
           f" · 最大单只 {max(r['weight'] for r in rows)*100:.1f}%"
           f" · 最小 {min(r['weight'] for r in rows)*100:.1f}%")
 
-
-def show_book2():
-    path = ROOT / "data/book2_conviction.csv"
-    rows = list(csv.DictReader(l for l in open(path) if not l.startswith("#")))
-    print(f"\n【第二本 · 集中判断书】{len(rows)} 只 · 纯手工 · 不参与上面任何计算")
-    for r in rows:
-        filled = "✅" if r["thesis"] and not r["thesis"].startswith("待填") else "⬜ 论证待你写"
-        print(f"  {r['ticker']:8} {r['name'][:24]:26} 权重:{r['weight'] or '待定':6}  {filled}")
-    print("  ⚠️ V 与 AXP 共用卡轨命脉，不是两个独立下注——先回答「为什么押卡轨」。")
 
 
 if __name__ == "__main__":
