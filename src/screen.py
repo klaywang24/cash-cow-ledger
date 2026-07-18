@@ -19,8 +19,10 @@ def screen_us(d: dict, cfg: dict) -> dict:
     L2 = cfg["L2_landmines"]
 
     # ---- 数据完整性闸：必需字段缺失 → 标记，不参与打分 ----
+    # 毛利率或营业利润率有其一即可（支付网络无COGS，用营业利润率兜底）
+    has_margin = m["gross_margin_latest"] is not None or m["op_margin_latest"] is not None
     need = {"FCF连续为正": m["fcf_positive_streak"] is not None,
-            "毛利率": m["gross_margin_latest"] is not None,
+            "利润率": has_margin,
             "ROIC": m["roic_avg"] is not None,
             "资产增速": m["asset_cagr"] is not None,
             "收入增速": m["rev_cagr"] is not None}
@@ -51,10 +53,14 @@ def screen_us(d: dict, cfg: dict) -> dict:
         fails.append(f"FCF连续为正{m['fcf_positive_streak']}<{L3['fcf_positive_years']}年")
     if m["fcf_cv"] is None or m["fcf_cv"] > L3["fcf_cv_max"]:
         fails.append(f"FCF变异系数{_f(m['fcf_cv'])}>{L3['fcf_cv_max']}")
-    if m["gross_margin_latest"] < L3["gross_margin_min"]:
-        fails.append(f"毛利率{m['gross_margin_latest']*100:.0f}%<{L3['gross_margin_min']*100:.0f}%")
-    if m["gross_margin_trend_ok"] is False:
-        fails.append("毛利率10年趋势下行")
+    if m["gross_margin_latest"] is not None:
+        if m["gross_margin_latest"] < L3["gross_margin_min"]:
+            fails.append(f"毛利率{m['gross_margin_latest']*100:.0f}%<{L3['gross_margin_min']*100:.0f}%")
+        if m["gross_margin_trend_ok"] is False:
+            fails.append("毛利率10年趋势下行")
+    else:   # 无毛利率 → 用营业利润率兜底
+        if m["op_margin_latest"] < L3["operating_margin_min_fallback"]:
+            fails.append(f"营业利润率{m['op_margin_latest']*100:.0f}%<{L3['operating_margin_min_fallback']*100:.0f}%")
     if m["roic_avg"] < L3["roic_min"]:
         fails.append(f"ROIC均值{m['roic_avg']*100:.0f}%<{L3['roic_min']*100:.0f}%")
     if m["asset_cagr"] is not None and m["rev_cagr"] is not None \

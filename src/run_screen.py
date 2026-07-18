@@ -17,8 +17,20 @@ TODAY = dt.date.today().isoformat()
 
 
 def load_universe():
+    """L1：标普500快照，剔除资产负债表型金融与REIT(框架不适用)，保留资产轻金融。"""
     u = json.load(open(ROOT / "data/universe/sp500.json"))
-    return u["tickers"]
+    L1 = cfg["L1_universe"]
+    exc_sectors = set(L1.get("exclude_sectors", []))
+    keep_fin_sub = set(L1.get("keep_financials_sub", []))
+    out, dropped = [], 0
+    for r in u["rows"]:
+        if r["sector"] in exc_sectors:
+            dropped += 1; continue
+        if r["sector"] == "Financials" and r["sub"] not in keep_fin_sub:
+            dropped += 1; continue
+        out.append(r["ticker"])
+    print(f"L1 剔除资产负债表金融/REIT {dropped} 只 → 剩 {len(out)} 只")
+    return out
 
 
 def get_ust10y():

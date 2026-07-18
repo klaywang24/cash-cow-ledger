@@ -203,6 +203,9 @@ def derive(d: dict, cfg: dict) -> dict:
     fcf = fcf_series(d)
     gm = gross_margin_series(d)
     roic = roic_series(d)
+    ebit = ebit_series(d)
+    om = {y: ebit[y] / d["revenue"][y] for y in ebit
+          if y in d["revenue"] and d["revenue"][y] > 0}   # 营业利润率(兜底用)
 
     # 陈旧度锚：以收入最近财年为基准，指标须来自 ref_fy-1 及以后，否则视为缺失。
     # （防 HAL 式：停报毛利后拿 8 年前的旧值蒙混过关。）
@@ -230,6 +233,7 @@ def derive(d: dict, cfg: dict) -> dict:
     gm_trend_ok = (gm[gm_yrs[-1]] >= gm[gm_yrs[0]] * 0.95
                    if len(gm_yrs) >= 2 else None)
     gm_latest = gm[max(gm)] if gm and _recent(max(gm)) else None
+    om_latest = om[max(om)] if om and _recent(max(om)) else None
 
     # L3: ROIC 近 M 年均值（须为近年数据）
     roic_yrs = _last_n_consecutive(roic, L3["roic_lookback_years"])
@@ -252,6 +256,7 @@ def derive(d: dict, cfg: dict) -> dict:
         "fcf_positive_streak": streak,
         "fcf_cv": fcf_cv,
         "gross_margin_latest": gm_latest,
+        "op_margin_latest": om_latest,
         "gross_margin_trend_ok": gm_trend_ok,
         "roic_avg": roic_avg,
         "asset_cagr": asset_cagr,
