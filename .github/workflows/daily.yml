@@ -56,8 +56,10 @@ jobs:
 
       - name: commit data
         run: |
-          git config user.name  "cash-cow-ledger-bot"
-          git config user.email "klaywang24+cashcowledger@gmail.com"
+          # Commit as the repository owner: a bot identity would appear as a separate
+          # contributor and, using a plus-alias, would not map to the account at all.
+          git config user.name  "Klay"
+          git config user.email "klaywang24@gmail.com"
           git add data/ledger/ output/ || true
           if git diff --staged --quiet; then
             echo "no change"; exit 0
