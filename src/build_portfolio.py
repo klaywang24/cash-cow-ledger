@@ -1,109 +1,119 @@
 """
-把筛选候选 + 手工例外 组装成带权重的观察组合。
-权重规则(config.rules)：规则票按 FCF 绝对额加权；例外每只 ≤8% 上限。
-输出=卫星仓内的权重(× 卫星占总仓比例 = 占总仓)。纯展示，不是下单。
+构建【第一本：机械指数】的成分与权重。100% 机械，无任何人工确认环节。
+
+权重规则（config.rules）：
+  - 按综合得分加权（不用 FCF 绝对额——那会系统性偏向"大而老"的成熟现金牛）
+  - 仅在入场时封顶 8%，超出部分按比例分给未封顶者（迭代至收敛）
+  - 入场后永不再平衡：权重随价格漂移，让赢家自己膨胀
+
+第二本（集中判断书）不在此计算——它是 data/book2_conviction.csv，纯手工，
+由你的判断决定，与本文件的机械逻辑彻底隔离。
 """
 from __future__ import annotations
 import sys, csv, pathlib, datetime as dt
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
-from src.edgar import Edgar, extract_all
-from src.metrics import fcf_series, derive
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 cfg = yaml.safe_load(open(ROOT / "config.yaml"))
 TODAY = dt.date.today().isoformat()
 
-# 用户裁定：科技大盘股不进(核心仓已有)；只加这三只估值例外
-EXCEPTIONS = ["V", "MA", "RMS.PA"]
-HERMES_FCF_USD = 4.04e9 * 1.08          # 爱马仕 FCF €4.04B × EUR/USD≈1.08
+
+def dedup_dual_class(rows):
+    """双重股权去重：同公司只留一只（候选已按得分排序，留高分那只）。"""
+    seen, out = set(), []
+    for r in rows:
+        co = r["entity"].replace(" INC", "").replace(".", "").strip()[:14]
+        if co in seen:
+            continue
+        seen.add(co); out.append(r)
+    return out
 
 
-def fcf_latest_usd(e, ticker):
-    d = extract_all(e, ticker)
-    if d is None:
-        return None
-    f = fcf_series(d)
-    return f[max(f)] if f else None
+def cap_and_redistribute(weights: dict, cap: float) -> dict:
+    """把超过 cap 的权重削平，超出部分按比例分给未封顶者，迭代至收敛。"""
+    w = dict(weights)
+    for _ in range(100):
+        over = [k for k, v in w.items() if v > cap + 1e-12]
+        if not over:
+            break
+        excess = sum(w[k] - cap for k in over)
+        for k in over:
+            w[k] = cap
+        under = [k for k, v in w.items() if v < cap - 1e-12]
+        if not under:
+            break
+        tot = sum(w[k] for k in under)
+        for k in under:
+            w[k] += excess * (w[k] / tot)
+    return w
 
 
 def main():
-    e = Edgar(**{k: cfg["edgar"][k] for k in
-                 ("user_agent", "rate_limit_per_sec", "cache_dir", "cache_days")})
     cand = list(csv.DictReader(open(ROOT / f"output/candidates_{TODAY}.csv")))
-    rules = [r for r in cand if r["ticker"] not in EXCEPTIONS]
-    # 双重股权去重：同公司只留一只（候选已按得分排序，留先出现的高分那只）
-    seen_co, dedup = set(), []
-    for r in rules:
-        co = r["entity"].replace(" INC", "").replace(".", "").strip()[:14]
-        if co in seen_co:
-            continue
-        seen_co.add(co); dedup.append(r)
-    rules = dedup
+    rows = dedup_dual_class(cand)
 
-    rows = []
-    # 规则票
-    for r in rules:
-        fcf = fcf_latest_usd(e, r["ticker"])
-        rows.append({"ticker": r["ticker"], "entity": r["entity"], "kind": "规则",
-                     "fcf": fcf, "roic": r["roic_avg"], "gm": r["gross_margin_latest"],
-                     "pe": r["pe"], "fcf_yield": r["fcf_yield"], "streak": r["fcf_positive_streak"],
-                     "score": r["score"]})
-    # 例外
-    for t in EXCEPTIONS:
-        if t == "RMS.PA":
-            wl = next(csv.DictReader(l for l in open(ROOT/"data/global_watchlist.csv") if not l.startswith("#")))
-            rows.append({"ticker": "RMS.PA", "entity": wl["name"], "kind": "例外",
-                         "fcf": HERMES_FCF_USD, "roic": wl["roic_avg"], "gm": wl["gross_margin"],
-                         "pe": wl["pe"], "fcf_yield": wl["fcf_yield"], "streak": "手工", "score": None})
-        else:
-            d = extract_all(e, t); m = derive(d, cfg)
-            rows.append({"ticker": t, "entity": m["entity"], "kind": "例外",
-                         "fcf": fcf_latest_usd(e, t), "roic": m["roic_avg"],
-                         "gm": m["gross_margin_latest"], "om": m["op_margin_latest"],
-                         "pe": None, "fcf_yield": None, "streak": m["fcf_positive_streak"], "score": None})
+    N = cfg["L5_count"]["target_holdings"]
+    minN = cfg["L5_count"]["min_holdings"]
+    cap = cfg["rules"]["entry_weight_cap"]
 
-    # ---- 权重：例外先按FCF算再封顶8%，剩余预算规则票按FCF分 ----
-    cap = cfg["rules"]["exception_cap_pct"]
-    total_fcf = sum(r["fcf"] for r in rows if r["fcf"])
-    exc = [r for r in rows if r["kind"] == "例外"]
-    rul = [r for r in rows if r["kind"] == "规则"]
-    for r in exc:
-        r["weight"] = min(r["fcf"]/total_fcf, cap) if r["fcf"] else 0
-    budget = 1 - sum(r["weight"] for r in exc)
-    rul_fcf = sum(r["fcf"] for r in rul if r["fcf"])
-    for r in rul:
-        r["weight"] = (r["fcf"]/rul_fcf) * budget if r["fcf"] else 0
+    if len(rows) < minN:
+        print(f"⚠️ 合格者仅 {len(rows)} 只，低于下限 {minN}——按规则记录，不补足、不放宽。")
+    book1 = rows[:N]                      # 按得分取前 N
 
-    rows.sort(key=lambda r: r["weight"], reverse=True)
-    write(rows)
-    show(rows)
+    # 得分加权 + 入场封顶
+    raw = {r["ticker"]: float(r["score"]) for r in book1}
+    tot = sum(raw.values())
+    w = cap_and_redistribute({k: v / tot for k, v in raw.items()}, cap)
+    for r in book1:
+        r["weight"] = w[r["ticker"]]
+
+    write_book1(book1)
+    show(book1)
+    show_book2()
 
 
-def write(rows):
-    with open(ROOT/f"output/portfolio_{TODAY}.csv", "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["ticker","entity","kind","weight_in_satellite","fcf_usd_b","roic","margin","pe","fcf_positive_years"])
-        for r in rows:
-            w.writerow([r["ticker"], r["entity"], r["kind"], round(r["weight"],4),
-                        round((r["fcf"] or 0)/1e9,1), r["roic"], r.get("gm") or r.get("om"),
-                        r["pe"], r["streak"]])
+def write_book1(rows):
+    (ROOT / "output").mkdir(exist_ok=True)
+    with open(ROOT / f"output/book1_index_{TODAY}.csv", "w", newline="") as f:
+        wr = csv.writer(f)
+        wr.writerow(["rank", "ticker", "entity", "weight", "score", "fcf_yield",
+                     "roic", "margin", "pe", "fcf_positive_years"])
+        for i, r in enumerate(rows, 1):
+            wr.writerow([i, r["ticker"], r["entity"], round(r["weight"], 5), r["score"],
+                         r["fcf_yield"], r["roic_avg"],
+                         r["gross_margin_latest"] or "", r["pe"], r["fcf_positive_streak"]])
+
+
+def _p(v):
+    try:
+        return f"{float(v)*100:.0f}%"
+    except (TypeError, ValueError):
+        return "--"
 
 
 def show(rows):
-    print(f"\n观察组合 {TODAY} · 卫星仓内权重 · 共 {len(rows)} 只")
-    print(f"{'#':>2} {'票':7} {'权重':>6} {'FCF(B)':>7} {'ROIC':>6} {'利润率':>6} {'PE':>5} {'类':>4}  公司")
-    exc_w = 0
+    print(f"\n【第一本 · 机械指数】{TODAY} · N={len(rows)} · 得分加权 · 入场封顶"
+          f"{cfg['rules']['entry_weight_cap']*100:.0f}% · 入场后不再平衡")
+    print(f"{'#':>2} {'票':7} {'权重':>6} {'得分':>6} {'FCF收益':>7} {'ROIC':>6} {'利润率':>6} {'PE':>5}  公司")
     for i, r in enumerate(rows, 1):
-        m = r.get("gm") or r.get("om")
-        mval = f"{float(m)*100:.0f}%" if m not in (None,"") else "--"
-        rv = f"{float(r['roic'])*100:.0f}%" if r['roic'] not in (None,"") else "--"
-        pe = f"{float(r['pe']):.0f}" if r['pe'] not in (None,"") else "--"
-        if r["kind"]=="例外": exc_w += r["weight"]
-        print(f"{i:>2} {r['ticker']:7} {r['weight']*100:5.1f}% {(r['fcf'] or 0)/1e9:7.1f} "
-              f"{rv:>6} {mval:>6} {pe:>5} {r['kind']:>4}  {r['entity'][:32]}")
-    print(f"\n规则票 {sum(1 for r in rows if r['kind']=='规则')} 只，例外 {sum(1 for r in rows if r['kind']=='例外')} 只(合计 {exc_w*100:.1f}% 卫星仓)")
-    print(f"权重合计 {sum(r['weight'] for r in rows)*100:.1f}%（应≈100%）")
+        pe = f"{float(r['pe']):.0f}" if r["pe"] else "--"
+        print(f"{i:>2} {r['ticker']:7} {r['weight']*100:5.1f}% {float(r['score']):6.3f} "
+              f"{_p(r['fcf_yield']):>7} {_p(r['roic_avg']):>6} {_p(r['gross_margin_latest']):>6} "
+              f"{pe:>5}  {r['entity'][:30]}")
+    print(f"权重合计 {sum(r['weight'] for r in rows)*100:.1f}%"
+          f" · 最大单只 {max(r['weight'] for r in rows)*100:.1f}%"
+          f" · 最小 {min(r['weight'] for r in rows)*100:.1f}%")
+
+
+def show_book2():
+    path = ROOT / "data/book2_conviction.csv"
+    rows = list(csv.DictReader(l for l in open(path) if not l.startswith("#")))
+    print(f"\n【第二本 · 集中判断书】{len(rows)} 只 · 纯手工 · 不参与上面任何计算")
+    for r in rows:
+        filled = "✅" if r["thesis"] and not r["thesis"].startswith("待填") else "⬜ 论证待你写"
+        print(f"  {r['ticker']:8} {r['name'][:24]:26} 权重:{r['weight'] or '待定':6}  {filled}")
+    print("  ⚠️ V 与 AXP 共用卡轨命脉，不是两个独立下注——先回答「为什么押卡轨」。")
 
 
 if __name__ == "__main__":

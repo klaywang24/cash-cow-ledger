@@ -64,25 +64,31 @@ L4_valuation:
 
 # ---- L5 数量 ----
 L5_count:
-  min_holdings: 15
-  max_holdings: 30
-  score_weights:                # 综合得分权重（用于排名取前 N）
+  target_holdings: 20           # 固定成分数 N。定于 20 的推导：分散边际效用在15-25吃满；
+                                # 机械筛选每只 IC 低 → 按 IR≈IC×√广度 不该集中；
+                                # 但82%集中于三行业 → 有效广度封顶 ~25。两侧交叉即 20-25。
+  min_holdings: 15              # 合格者不足此数则告警并记录（不补足、不放宽规则）
+  score_weights:                # 综合得分权重（用于排名与加权）
     fcf_yield: 0.30
     roic: 0.25
     gross_margin: 0.20
     fcf_stability: 0.15         # = 1 - 归一化CV
     low_asset_growth: 0.10
 
-# ---- 交易与权重规则（Phase 2 落地，先留位） ----
+# ---- 交易与权重规则（第一本 = 100% 机械，无任何人工确认环节） ----
 rules:
-  buffer_enter_pct: 0.20        # 综合排名前 20% 才可新入选
-  buffer_exit_pct: 0.40         # 跌出前 40% 才剔除（宽缓冲带）
-  momentum_veto_ma_days: 200    # 新买入须在 200 日均线上方；剔除时若仍在线上延迟一个审查期
-  weighting: "fcf_absolute"     # 入选按 FCF 绝对额加权，之后不再平衡（让权重漂移）
-  review_frequency: "semiannual"
-  turnover_budget_annual: 0.25  # 每年换手 ≤ 25%，超限报警
-  exception_slots: 3            # ≤3 只规则外持仓
-  exception_cap_pct: 0.08       # 每只上限 8%
+  # 名次缓冲带（滞回）：新进须名次 ≤ N；在位持仓跌到名次 > 2N 才剔除。
+  # 用绝对名次而非百分位——合格池只有二十几只时，百分位会退化成只剩四五只。
+  buffer_enter_rank: 20         # = N
+  buffer_exit_rank: 40          # = 2N
+  momentum_veto_ma_days: 200    # 新买入须在200日均线上方；该剔除但仍在线上者延后一个审查期
+  weighting: "score"            # 按综合得分加权（不用 FCF 绝对额：那会偏向"大而老"的成熟现金牛）
+  entry_weight_cap: 0.08        # 仅在入场时封顶
+  rebalance_after_entry: false  # 入场后永不再平衡，让赢家自然漂移（标普式「不卖的动量」）
+  review_months: [1, 7]         # 每年1月/7月首个交易日审查；其余时间成分一律不动
+  turnover_budget_annual: 0.25  # 换手超此值记录告警（只记录，不干预规则）
+  # ⚠️ 例外条款已删除。第一本必须 100% 机械可复现：任何裁量（含"人工确认变更"）
+  # 都会使它不可审计、不可授权。一切裁量持仓进第二本 data/book2_conviction.csv。
 
 # ---- 基准（Phase 2 对比用） ----
 benchmarks:
