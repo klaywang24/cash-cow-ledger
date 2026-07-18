@@ -1,23 +1,25 @@
 """
-从 EDGAR 年度序列派生 L2-L5 所需的全部信号。
+Derive every L2-L5 signal from the EDGAR annual series.
 
-两条铁律：
-- 缺数据就返回 None，绝不用 0 或估算值顶替（对应 config.data_policy）。
-- 序列在计算前先过量纲归一 + 拆股归一（XBRL as-filed 的两个坑）。
+Two hard rules:
+- Missing data returns None; never substitute 0 or an estimate (see config.data_policy).
+- Series are magnitude-normalized and split-adjusted before use (the two as-filed XBRL pitfalls).
 """
 from __future__ import annotations
 import math
 from statistics import mean, pstdev
 from typing import Optional
 
-# 常见拆股比例（正拆 + 反拆用倒数）
+# Common split factors (forward splits; reverse splits use the reciprocal)
 _SPLIT_FACTORS = [2, 3, 3/2, 4, 5, 6, 7, 8, 10, 15, 20]
 
 
 def rescale_1000(series: dict[int, float]) -> dict[int, float]:
-    """修同一序列内【千倍量纲错位】（千/百万/全额混用，如 MCD 某年起改按百万报）。
-    只在某年偏离基准≈精确 1000^n（容差内）时才拉回；拆股/成长造成的非千倍
-    量级变化（如 NVDA 十年 40 倍）一律放过，交给 split_adjust。"""
+    """Fix thousand-fold magnitude drift within one series (thousands / millions / units
+    mixed, e.g. a company that starts reporting in millions from some year).
+    Rescale only when a year deviates from the baseline by approximately an exact 1000^n
+    (within tolerance); non-thousand-fold changes from splits or growth (e.g. a 40x
+    ten-year increase) are left alone for split_adjust to handle."""
     vals = [v for v in series.values() if v and v > 0]
     if len(vals) < 2:
         return dict(series)
@@ -28,7 +30,7 @@ def rescale_1000(series: dict[int, float]) -> dict[int, float]:
         if v and v > 0:
             frac = (med - math.log10(v)) / 3           # 3 = log10(1000)
             k = round(frac)
-            # 只有极接近整数（≈精确千倍）才认定是量纲错位
+            # Only a near-integer (i.e. an almost exact thousand-fold) counts as magnitude drift
             out[y] = v * (1000 ** k) if k != 0 and abs(frac - k) < 0.12 else v
         else:
             out[y] = v
@@ -36,8 +38,9 @@ def rescale_1000(series: dict[int, float]) -> dict[int, float]:
 
 
 def split_adjust(series: dict[int, float]) -> dict[int, float]:
-    """把股本序列的拆股跳变还原到最新年份口径（仅用于股本）。
-    从新到旧扫相邻年比值，接近某拆股比例就把更早年份整体缩放。"""
+    """Restate share-count split discontinuities onto the latest year's basis (shares only).
+    Scan adjacent-year ratios newest to oldest; when one is close to a known split factor,
+    scale all earlier years accordingly."""
     years = sorted(series)
     if len(years) < 2:
         return dict(series)
@@ -49,10 +52,10 @@ def split_adjust(series: dict[int, float]) -> dict[int, float]:
             continue
         r = cur / prev
         for sf in _SPLIT_FACTORS:
-            if abs(r - sf) / sf < 0.08:          # 正拆：今年股本≈去年×sf
+            if abs(r - sf) / sf < 0.08:          # forward split: this year ≈ last year × sf
                 factor *= sf
                 break
-            if abs(r - 1 / sf) / (1 / sf) < 0.08:  # 反拆
+            if abs(r - 1 / sf) / (1 / sf) < 0.08:  # reverse split
                 factor /= sf
                 break
         out[years[i - 1]] = series[years[i - 1]] * factor
@@ -60,7 +63,8 @@ def split_adjust(series: dict[int, float]) -> dict[int, float]:
 
 
 def _last_n_consecutive(series: dict[int, float], n: int) -> list[int]:
-    """返回最近 n 个【连续】财年（有断档就截断）。不足 n 返回已有的。"""
+    """Return the most recent n CONSECUTIVE fiscal years (truncating at any gap).
+    Returns fewer than n if that is all there is."""
     years = sorted(series)
     if not years:
         return []
@@ -81,7 +85,8 @@ def fcf_series(d: dict) -> dict[int, float]:
 
 
 def gross_margin_series(d: dict) -> dict[int, float]:
-    """毛利率：优先 GrossProfit/Rev，回退 (Rev−COGS)/Rev。取不到就没有该年。"""
+    """Gross margin: GrossProfit/Revenue preferred, falling back to (Revenue−COGS)/Revenue.
+    A year with neither is simply absent."""
     rev, gp, cogs = d["revenue"], d["gross_profit"], d["cost_of_revenue"]
     out = {}
     for y, r in rev.items():
@@ -96,19 +101,20 @@ def gross_margin_series(d: dict) -> dict[int, float]:
 
 
 def ebit_series(d: dict) -> dict[int, float]:
-    """营业利润(EBIT)：优先 OperatingIncomeLoss；缺失则用 税前利润+利息费用 回退。
-    很多公司(单步式利润表)不报 OperatingIncomeLoss，回退能救回它们。"""
+    """EBIT: OperatingIncomeLoss preferred; falls back to pre-tax income + interest expense.
+    Many companies (single-step income statements) never file OperatingIncomeLoss, and the
+    fallback recovers them."""
     oi, pretax, intexp = d["operating_income"], d["pretax_income"], d["interest_expense"]
     out = dict(oi)
     for y in pretax:
         if y not in out and y in intexp:
-            out[y] = pretax[y] + intexp[y]     # EBIT ≈ 税前 + 利息
+            out[y] = pretax[y] + intexp[y]     # EBIT ≈ pre-tax + interest
     return out
 
 
 def roic_series(d: dict) -> dict[int, float]:
-    """ROIC ≈ NOPAT / 投入资本。
-    NOPAT = EBIT × (1 − 有效税率)；投入资本 = 权益 + 总债务 − 现金。"""
+    """ROIC ≈ NOPAT / invested capital.
+    NOPAT = EBIT × (1 − effective tax rate); invested capital = equity + total debt − cash."""
     ebit, eq, cash = ebit_series(d), d["equity"], d["cash"]
     ltd, ltdc = d["lt_debt"], d["lt_debt_current"]
     tax, pretax = d["income_tax"], d["pretax_income"]
@@ -120,7 +126,7 @@ def roic_series(d: dict) -> dict[int, float]:
         invested = eq[y] + debt - cash.get(y, 0)
         if invested <= 0:
             continue
-        # 有效税率（缺失或异常则用 21%）
+        # Effective tax rate (21% when missing or out of range)
         rate = 0.21
         if y in tax and y in pretax and pretax[y] and pretax[y] > 0:
             r = tax[y] / pretax[y]
@@ -151,20 +157,20 @@ def cagr(series: dict[int, float], years: list[int]) -> Optional[float]:
     return (b / a) ** (1 / (len(years) - 1)) - 1
 
 
-# ---------------- L2 防雷（返回 True = 命中地雷 = 剔除） ----------------
+# ---------------- L2 landmines (True = hit = the name is excluded) ----------------
 def flag_accruals(d: dict, ratio_max: float, years_req: int) -> Optional[bool]:
     ni, ocf = d["net_income"], d["ocf"]
     yrs = _last_n_consecutive({y: 1 for y in ni if y in ocf}, years_req)
     if len(yrs) < years_req:
-        return None                       # 数据不足，判不了
+        return None                       # insufficient data to judge
     hits = 0
     for y in yrs:
         if ocf[y] and ocf[y] > 0:
             if ni[y] / ocf[y] > ratio_max:
                 hits += 1
-        elif ni[y] > 0:                   # 有利润却没经营现金流 = 最坏情形
+        elif ni[y] > 0:                   # profit but no operating cash flow = worst case
             hits += 1
-    return hits == len(yrs)               # 连续每年都命中才算地雷
+    return hits == len(yrs)               # only a hit in every year of the run counts
 
 
 def flag_ar_growth(d: dict, mult: float, years_req: int) -> Optional[bool]:
@@ -185,8 +191,8 @@ def flag_ar_growth(d: dict, mult: float, years_req: int) -> Optional[bool]:
 
 
 def flag_net_share_issuance(d: dict, lookback: int) -> Optional[bool]:
-    """近 lookback 年净股本不降反升（升幅>2%容差）= 回购被稀释吞掉的信号。
-    股本先做量纲+拆股归一。"""
+    """Net share count rising rather than falling over `lookback` years (>2% tolerance)
+    signals buybacks swallowed by dilution. Shares are magnitude- and split-normalized first."""
     sh = split_adjust(rescale_1000(d["shares"]))
     yrs = _last_n_consecutive(sh, lookback + 1)
     if len(yrs) < 2:
@@ -197,7 +203,7 @@ def flag_net_share_issuance(d: dict, lookback: int) -> Optional[bool]:
     return (b / a - 1) > 0.02
 
 
-# ---------------- 打包所有派生信号（供筛选器与体检用） ----------------
+# ---------------- Bundle every derived signal (for the screener and health probes) ----------------
 def derive(d: dict, cfg: dict) -> dict:
     L2, L3 = cfg["L2_landmines"], cfg["L3_quality"]
     fcf = fcf_series(d)
@@ -205,15 +211,16 @@ def derive(d: dict, cfg: dict) -> dict:
     roic = roic_series(d)
     ebit = ebit_series(d)
     om = {y: ebit[y] / d["revenue"][y] for y in ebit
-          if y in d["revenue"] and d["revenue"][y] > 0}   # 营业利润率(兜底用)
+          if y in d["revenue"] and d["revenue"][y] > 0}   # operating margin (fallback)
 
-    # 陈旧度锚：以收入最近财年为基准，指标须来自 ref_fy-1 及以后，否则视为缺失。
-    # （防 HAL 式：停报毛利后拿 8 年前的旧值蒙混过关。）
+    # Staleness anchor: metrics must come from ref_fy-1 or later, where ref_fy is the latest
+    # revenue fiscal year; otherwise treat as missing. (Guards against a company that stops
+    # reporting gross profit and then passes on an eight-year-old value.)
     ref_fy = max(d["revenue"]) if d["revenue"] else None
     def _recent(y):
         return ref_fy is not None and y is not None and y >= ref_fy - 1
 
-    # L3: FCF 连续为正年数 + 变异系数（FCF 须为近年数据，否则整体作缺失）
+    # L3: consecutive positive-FCF years + coefficient of variation (stale FCF = all missing)
     fcf_years = sorted(fcf)
     if fcf_years and not _recent(fcf_years[-1]):
         streak, fcf_cv = None, None
@@ -228,19 +235,19 @@ def derive(d: dict, cfg: dict) -> dict:
         fcf_cv = (pstdev(recent_fcf) / mean(recent_fcf)
                   if len(recent_fcf) >= 2 and mean(recent_fcf) > 0 else None)
 
-    # L3: 毛利率趋势（首尾比，不下行 = 末 ≥ 首 × 0.95）+ 陈旧度闸
+    # L3: gross-margin trend (last vs first; "not declining" = last ≥ first × 0.95) + staleness gate
     gm_yrs = _last_n_consecutive(gm, L3["gross_margin_trend_years"])
     gm_trend_ok = (gm[gm_yrs[-1]] >= gm[gm_yrs[0]] * 0.95
                    if len(gm_yrs) >= 2 else None)
     gm_latest = gm[max(gm)] if gm and _recent(max(gm)) else None
     om_latest = om[max(om)] if om and _recent(max(om)) else None
 
-    # L3: ROIC 近 M 年均值（须为近年数据）
+    # L3: M-year average ROIC (must be recent data)
     roic_yrs = _last_n_consecutive(roic, L3["roic_lookback_years"])
     roic_avg = (mean([roic[y] for y in roic_yrs])
                 if roic_yrs and _recent(max(roic_yrs)) else None)
 
-    # L3: 总资产增速 ≤ 收入增速（近 N 年）
+    # L3: asset growth ≤ revenue growth (trailing N years)
     n = L3["asset_growth_le_revenue_years"]
     a_yrs = _last_n_consecutive(d["assets"], n + 1)
     r_yrs = _last_n_consecutive(d["revenue"], n + 1)
@@ -262,7 +269,7 @@ def derive(d: dict, cfg: dict) -> dict:
         "asset_cagr": asset_cagr,
         "rev_cagr": rev_cagr,
         "net_debt_ebitda": net_debt_to_ebitda(d, latest) if latest else None,
-        # L2 地雷
+        # L2 landmines
         "L2_accruals": flag_accruals(d, L2["ni_to_ocf_ratio_max"], L2["ni_to_ocf_consecutive_years"]),
         "L2_ar_growth": flag_ar_growth(d, L2["ar_vs_rev_growth_multiple"], L2["ar_vs_rev_consecutive_years"]),
         "L2_share_issuance": flag_net_share_issuance(d, L2["net_share_lookback_years"]),

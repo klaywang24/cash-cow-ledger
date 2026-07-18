@@ -1,14 +1,15 @@
 """
-台账新鲜度监控 —— 防「管线静默死亡」。
+Ledger freshness monitor — guarding against silent pipeline death.
 
-设计针对的是一种具体的失败形态：**工作流报告"成功"，但根本没产出任何数据。**
-这种情况下所有"绿灯"都是假的，而缺口要等到有人偶然去看台账才会被发现。
+This targets one specific failure mode: the workflow reports SUCCESS while producing no
+data at all. In that state every green light is false, and the gap goes unnoticed until
+someone happens to open the ledger.
 
-所以本检查的判据是【台账数据本身的最新日期】，而不是任何工作流的自我报告；
-并且它以**非零退出码**失败，从而触发 GitHub Actions 原生的失败通知邮件
-（而不是往一个没人看的频道推消息）。
+So the test here is THE FRESHNESS OF THE LEDGER DATA ITSELF, never a workflow's own status
+report. It fails with a NON-ZERO EXIT CODE, which triggers GitHub Actions' native failure
+notification by email — rather than posting to a channel nobody reads.
 
-退出码：0 = 新鲜或尚未开账；1 = 台账过期，需要人立刻去看。
+Exit codes: 0 = fresh, or not yet at inception; 1 = ledger is stale and needs a human now.
 """
 from __future__ import annotations
 import sys, csv, pathlib, datetime as dt
@@ -23,40 +24,40 @@ LEVELS = ROOT / "data/ledger/index_level.csv"
 def main():
     inception = cfg["meta"].get("inception_date")
     if not inception:
-        print("尚未设定开账日 —— 无需监控。"); return 0
+        print("No inception date set — nothing to monitor."); return 0
 
     today = dt.date.today()
     inc = dt.date.fromisoformat(str(inception))
     if today < inc:
-        print(f"未到开账日（{inception}）—— 无需监控。"); return 0
+        print(f"Before inception ({inception}) — nothing to monitor."); return 0
 
     max_stale = cfg.get("monitoring", {}).get("max_stale_days", 4)
 
-    # 开账日当天或之后，台账文件必须存在
+    # On or after inception the ledger file must exist
     if not LEVELS.exists():
         days = (today - inc).days
         if days > max_stale:
-            print(f"🚨 已过开账日 {inception} 共 {days} 天，台账文件仍不存在。"
-                  f"\n   开账很可能失败了，且没有任何人发现。")
+            print(f"ALERT: {days} days past inception ({inception}) and the ledger file still "
+                  f"does not exist.\n   Inception most likely failed and nobody noticed.")
             return 1
-        print(f"开账日 {inception} 刚过 {days} 天，台账尚未生成 —— 暂不告警。")
+        print(f"Only {days} days past inception ({inception}) and the ledger is not yet created — not alerting.")
         return 0
 
     rows = list(csv.DictReader(open(LEVELS)))
     if not rows:
-        print("🚨 台账文件存在但没有任何记录 —— 管线可能空转。")
+        print("ALERT: the ledger file exists but holds no records — the pipeline may be spinning idle.")
         return 1
 
     last = dt.date.fromisoformat(rows[-1]["date"])
     stale = (today - last).days
     if stale > max_stale:
-        print(f"🚨 台账已 {stale} 天未更新（最后一行 {last}，阈值 {max_stale} 天）。"
-              f"\n   共 {len(rows)} 行记录。管线可能已静默死亡——"
-              f"工作流也许一直显示成功，但没有产出数据。"
-              f"\n   请立刻检查 daily.yml 的最近几次运行。")
+        print(f"ALERT: the ledger has not updated for {stale} days (last row {last}, "
+              f"threshold {max_stale} days).\n   {len(rows)} rows total. The pipeline may have "
+              f"died silently — the workflow may keep reporting success while producing no data."
+              f"\n   Check the recent daily.yml runs immediately.")
         return 1
 
-    print(f"✅ 台账新鲜：最后更新 {last}（{stale} 天前），共 {len(rows)} 行。")
+    print(f"Ledger is fresh: last updated {last} ({stale} days ago), {len(rows)} rows.")
     return 0
 
 

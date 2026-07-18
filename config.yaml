@@ -1,109 +1,127 @@
 # =====================================================================
-#  现金牛台账 (Cash Cow Ledger) — 参数配置
-#  所有筛选参数集中于此，禁止在代码里硬编码阈值。
-#  改规则 = 改本文件，代码不动。
+#  Cash Cow Ledger — parameters
+#  Every screening parameter lives here; thresholds are never hard-coded.
+#  Changing a rule means changing this file, not the code.
+#  This file is the executable copy of METHODOLOGY.md — if the two conflict,
+#  the methodology governs and this file must be corrected.
 # =====================================================================
 
 meta:
-  index_name: "现金牛台账"
-  index_name_en: "Cash Cow Ledger"
-  # 本系统主产品是【向前跟踪的观察指数(paper index)】，不是回测。
-  # 回测仅作参考，且所有回测输出必须标注前视/幸存者偏差风险。
-  inception_date: "2026-07-20"  # 开账日（周一）。此日之后一切进历史，改规则须版本化留痕。
+  index_name: "Cash Cow Ledger"
+  index_name_zh: "现金牛台账"
+  # The product is a FORWARD-TRACKED PAPER INDEX, not a backtest.
+  # Any backtest is reference only and must be labeled with look-ahead
+  # and survivorship bias warnings.
+  inception_date: "2026-07-20"  # Inception (Monday). After this, everything enters
+                                # the record; rule changes require versioned commits.
   base_currency: "USD"
 
-# ---- SEC EDGAR：美股财务主源（实时、权威、全历史 XBRL ≈2009+） ----
+# ---- SEC EDGAR: primary source for US fundamentals (live, full XBRL history from ~2009) ----
 edgar:
-  # SEC 要求带真实联系人的 User-Agent，否则会被限流/封。
+  # The SEC requires a User-Agent with a real contact, or requests get throttled/blocked.
   user_agent: "Cash Cow Ledger research (klaywang24+cashcowledger@gmail.com)"
-  rate_limit_per_sec: 8         # SEC 上限 10/s，留余量
+  rate_limit_per_sec: 8         # SEC caps at 10/s; leave headroom
   cache_dir: "data/fundamentals_cache"
-  cache_days: 7                 # companyfacts 本地缓存有效期（天）
+  cache_days: 7                 # local companyfacts cache lifetime (days)
 
-# ---- L1 池子 ----
+# ---- L1 universe ----
 L1_universe:
-  source: "sp500"              # 起步用标普 500（Wikipedia，易得）；扩到 russell1000 是改这一行
-  min_market_cap_usd: 2.0e9     # 市值下限
-  # FCF/毛利率/ROIC 框架对资产负债表型金融(银行/保险/消费金融)和 REIT 没意义 → L1 剔除。
-  # 但资产轻的金融(支付网络、交易所&数据商)有真 FCF 和利润率 → 保留。
+  source: "sp500"               # S&P 500 to start; widening to russell1000 is a one-line change
+  min_market_cap_usd: 2.0e9     # market-cap floor
+  # The FCF / gross-margin / ROIC framework is meaningless for balance-sheet financials
+  # (banks, insurers, consumer finance) and for REITs, so they are dropped at L1.
+  # Asset-light financials (payment networks, exchanges and data vendors) do have real
+  # margins and free cash flow, and are kept.
   exclude_sectors: ["Real Estate"]
   keep_financials_sub: ["Transaction & Payment Processing Services",
                         "Financial Exchanges & Data"]
 
-# ---- L2 防雷排除（任一命中即剔除） ----
+# ---- L2 landmine exclusions (any single hit removes the name) ----
 L2_landmines:
-  # 净利润 / 经营现金流 连续 N 年 > 阈值（利润远超现金流 = 盈利质量存疑）
+  # Net income / operating cash flow above threshold for N consecutive years
+  # (earnings far exceeding cash = questionable earnings quality)
   ni_to_ocf_ratio_max: 1.3
   ni_to_ocf_consecutive_years: 3
-  # 应收账款增速 > 收入增速 × 倍数，连续 N 年
+  # Receivables growth exceeding revenue growth by this multiple, N years running
   ar_vs_rev_growth_multiple: 2.0
   ar_vs_rev_consecutive_years: 2
-  # 净股本近 N 年不降反升 且 有回购（回购被股权激励吞掉）
+  # Net share count rising rather than falling over N years despite buybacks
+  # (buybacks swallowed by stock-based compensation)
   net_share_lookback_years: 3
-  # 净负债 / EBITDA 上限
+  # Net debt / EBITDA ceiling
   net_debt_to_ebitda_max: 3.0
 
-# ---- L3 质量入选（须全部满足） ----
+# ---- L3 quality inclusion (all must be satisfied) ----
 L3_quality:
-  fcf_positive_years: 7         # FCF 连续 ≥N 年为正（这是全套设计最关键的单一参数）
-  fcf_cv_max: 0.60              # FCF 变异系数上限（标准差/均值），过滤周期顶部假现金牛
-  gross_margin_min: 0.30        # 毛利率下限
-  gross_margin_trend_years: 10  # 近 N 年毛利率趋势不下行
-  # 无毛利率概念时(支付网络V/MA等无COGS)用营业利润率兜底，避免测量假阴性
+  fcf_positive_years: 7         # consecutive years of positive FCF — the single most important parameter
+  fcf_cv_max: 0.60              # FCF coefficient of variation ceiling; filters cyclical-peak fake cash cows
+  gross_margin_min: 0.30        # gross-margin floor
+  gross_margin_trend_years: 10  # gross margin must not decline over N years
+  # When no gross-margin concept exists (payment networks have no COGS), fall back to
+  # operating margin — this avoids a measurement false-negative on genuine quality names.
   operating_margin_min_fallback: 0.20
-  roic_min: 0.12                # ROIC 近 M 年均值下限
+  roic_min: 0.12                # floor on M-year average ROIC
   roic_lookback_years: 5
-  asset_growth_le_revenue_years: 3   # 总资产增速 ≤ 收入增速（近 N 年，资本纪律）
+  asset_growth_le_revenue_years: 3   # asset growth ≤ revenue growth over N years (capital discipline)
 
-# ---- L4 估值约束（取宽松者通过） ----
+# ---- L4 valuation constraint (either one suffices) ----
 L4_valuation:
-  fcf_yield_min_vs_ust10y: true # FCF 收益率 ≥ 10 年期美债收益率
-  ust10y_fallback: 0.045        # 拿不到实时美债收益率时的兜底值
-  pe_max: 30                    # 或 P/E ≤ 上限
+  fcf_yield_min_vs_ust10y: true # FCF yield ≥ 10-year US Treasury yield
+  ust10y_fallback: 0.045        # fallback when the live Treasury yield is unavailable
+  pe_max: 30                    # or trailing P/E ≤ this ceiling
 
-# ---- L5 数量 ----
+# ---- L5 count ----
 L5_count:
-  target_holdings: 20           # 固定成分数 N。定于 20 的推导：分散边际效用在15-25吃满；
-                                # 机械筛选每只 IC 低 → 按 IR≈IC×√广度 不该集中；
-                                # 但82%集中于三行业 → 有效广度封顶 ~25。两侧交叉即 20-25。
-  min_holdings: 15              # 合格者不足此数则告警并记录（不补足、不放宽规则）
-  score_weights:                # 综合得分权重（用于排名与加权）
+  target_holdings: 20           # Constituent count N. Why 20: diversification benefits saturate
+                                # between 15 and 25; a mechanical screen has low information
+                                # coefficient per name, so by IR ≈ IC × √breadth it should not be
+                                # concentrated; but sector concentration caps effective breadth
+                                # near 25. The two forces cross at 20-25.
+  min_holdings: 15              # below this, record the anomaly (do not backfill, do not relax rules)
+  score_weights:                # composite score weights (used for ranking and for weighting)
     fcf_yield: 0.30
     roic: 0.25
     gross_margin: 0.20
-    fcf_stability: 0.15         # = 1 - 归一化CV
+    fcf_stability: 0.15         # = 1 − normalized coefficient of variation
     low_asset_growth: 0.10
 
-# ---- 交易与权重规则（第一本 = 100% 机械，无任何人工确认环节） ----
+# ---- Reconstitution and weighting (Book One is 100% mechanical: no human confirmation step) ----
 rules:
-  # 名次缓冲带（滞回）：新进须名次 ≤ N；在位持仓跌到名次 > 2N 才剔除。
-  # 用绝对名次而非百分位——合格池只有二十几只时，百分位会退化成只剩四五只。
+  # Rank buffer (hysteresis): entrants need rank ≤ N; incumbents leave only past rank 2N.
+  # Absolute ranks rather than percentiles — with only twenty-odd qualifiers, "top 20%"
+  # degenerates to four or five names.
   buffer_enter_rank: 20         # = N
   buffer_exit_rank: 40          # = 2N
-  momentum_veto_ma_days: 200    # 新买入须在200日均线上方；该剔除但仍在线上者延后一个审查期
-  weighting: "score"            # 按综合得分加权（不用 FCF 绝对额：那会偏向"大而老"的成熟现金牛）
-  entry_weight_cap: 0.08        # 仅在入场时封顶
-  rebalance_after_entry: false  # 入场后永不再平衡，让赢家自然漂移（标普式「不卖的动量」）
-  review_months: [1, 7]         # 每年1月/7月首个交易日审查；其余时间成分一律不动
-  turnover_budget_annual: 0.25  # 换手超此值记录告警（只记录，不干预规则）
-  # ⚠️ 例外条款已删除。第一本必须 100% 机械可复现：任何裁量（含"人工确认变更"）
-  # 都会使它不可审计、不可授权。裁量持仓一律不进本指数。
+  momentum_veto_ma_days: 200    # entrants must be above the 200d MA; incumbents due for removal
+                                # but still above it are deferred one review period
+  weighting: "score"            # composite-score weighted (not absolute FCF: that skews toward
+                                # large, mature cash cows)
+  entry_weight_cap: 0.08        # capped at entry only
+  rebalance_after_entry: false  # never rebalanced afterwards; winners are allowed to drift up
+                                # (the S&P's "momentum of not selling")
+  review_months: [1, 7]         # first trading day of January and July; constituents fixed otherwise
+  turnover_budget_annual: 0.25  # turnover above this records an alert only — it changes no rule
+  # NOTE: the exception clause was deliberately removed. Book One must stay 100% mechanical and
+  # reproducible: any discretion (including a "confirm this change" step) would make it
+  # unauditable and unlicensable. Discretionary holdings never enter this index.
 
-# ---- 基准（Phase 2 对比用） ----
+# ---- Benchmarks (used from Phase 2) ----
 benchmarks:
-  primary: "SPY"                # 主裁判：市值加权、零成本动量
-  reference: ["QQQ"]            # 参照线，不作成败裁判（避免幸存者偏差）
-  peer_products: ["COWZ", "QUAL"]   # 同类因子产品：检验本策略是否只是复制了货架商品
+  primary: "SPY"                # the yardstick: cap-weighted, zero-cost momentum
+  reference: ["QQQ"]            # reference line only — not a pass/fail judge (survivorship bias)
+  peer_products: ["COWZ", "QUAL"]   # peer factor products: does this add anything beyond the shelf?
 
-# ---- 管线监控（防"静默死亡"） ----
+# ---- Pipeline monitoring (guards against silent death) ----
 monitoring:
-  # 台账最新一行超过此天数未更新即告警。含周末与假期，故给 4 天余量。
-  # ⚠️ 判据是【台账数据本身的新鲜度】，不是工作流的自我报告——
-  #    工作流"成功"但没产出任何数据，正是静默死亡的典型形态。
+  # Alert if the ledger's latest row is older than this many days. Weekends and holidays
+  # included, hence the 4-day allowance.
+  # NOTE: the test is the FRESHNESS OF THE LEDGER DATA ITSELF, not any workflow's self-report —
+  #       a workflow reporting "success" while producing nothing is the classic silent death.
   max_stale_days: 4
 
-# ---- 数据缺失策略（硬约束） ----
+# ---- Missing-data policy (hard constraint) ----
 data_policy:
-  # 财务数据缺失时明确标记为 MISSING，禁止静默填充或跳过。
-  # 任一必需字段缺失 → 该股标记 data_incomplete，不参与打分，单独列出。
+  # Missing financials are flagged explicitly; silent filling or skipping is forbidden.
+  # Any missing required field marks the name data_incomplete, excludes it from scoring,
+  # and lists it separately.
   on_missing: "flag_exclude"

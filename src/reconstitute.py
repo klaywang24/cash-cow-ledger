@@ -1,16 +1,19 @@
 """
-半年一次的成分调整（METHODOLOGY §7）。100% 机械，无任何人工确认环节。
+Semi-annual reconstitution (METHODOLOGY §7). 100% mechanical: no human confirmation step.
 
-核心：**在位成分的份数(units)绝不因调仓被削减**——留任者原样带走自己的份数，
-这是「入场后永不再平衡、让赢家漂移」的实现。只有被剔除者才卖出，其释放的
-市值用于给新进者建仓；有余额则按比例分给留任者（按比例分配保持留任者之间的
-相对权重不变，故不违反「不削赢家」）。
+Core invariant: AN INCUMBENT'S UNITS ARE NEVER TRIMMED BY A RECONSTITUTION. Retained names
+carry their units through untouched — this is how "never rebalanced after entry, let winners
+drift" is implemented. Only removed names are sold, and the market value they release funds
+the entrants; any remainder is distributed pro rata across incumbents (pro-rata distribution
+preserves the relative weights among incumbents, so it does not violate "never trim winners").
 
-规则：
-  - 剔除：名次 > 2N(40) 或不再通过 L2/L3/L4
-  - 动量否决：该剔除但价格仍在 200 日均线上方者，延后一个审查期（仅一次）
-  - 新进：名次 ≤ N(20)，且价格在 200 日均线上方
-  - 新进权重按综合得分比例分配，单只封顶 8%（占调仓后总市值）
+Rules:
+  - Removal: rank > 2N (40), or no longer passing L2/L3/L4
+  - Momentum veto: a name due for removal whose price is still above its 200d MA is deferred
+    one review period (once only)
+  - Entry: rank <= N (20), and price above the 200d MA
+  - Entrant weights are allocated in proportion to composite score, capped at 8% of post-
+    reconstitution total market value
 """
 from __future__ import annotations
 import sys, csv, glob, pathlib, datetime as dt
@@ -27,9 +30,10 @@ FIELDS = ["ticker", "entity", "entry_date", "entry_price", "entry_weight",
           "units", "status", "exit_date", "deferred_since"]
 
 
-# ---------- 工具 ----------
+# ---------- helpers ----------
 def ma200(ticker: str, closes) -> float | None:
-    """200 日均线。数据不足 200 根则返回 None（此时动量闸判为不可用 → 不放行新进）。"""
+    """200-day moving average. Returns None with fewer than 200 bars, in which case the
+    momentum gate counts as unavailable and no entry is allowed."""
     s = closes.dropna()
     if len(s) < 200:
         return None
@@ -37,7 +41,7 @@ def ma200(ticker: str, closes) -> float | None:
 
 
 def fetch_history(tickers: list[str]):
-    """返回 {ticker: (最新收盘价, 200日均线)}；任一取不到则该票为 (None, None)。"""
+    """Return {ticker: (latest close, 200d MA)}; a ticker that cannot be resolved maps to (None, None)."""
     import yfinance as yf
     out = {}
     data = yf.download(tickers, period="18mo", auto_adjust=True,
@@ -58,12 +62,13 @@ def load_constituents():
 
 
 def latest_ranking():
-    """读最近一次 run_screen 的候选（已按得分降序），返回 [(ticker, entity, score)]。"""
+    """Read the latest run_screen candidates (already sorted by descending score).
+    Returns [(ticker, entity, score)]."""
     files = sorted(glob.glob(str(ROOT / "output/candidates_*.csv")))
     if not files:
         return []
     rows = list(csv.DictReader(open(files[-1])))
-    # 双重股权去重（与 build_portfolio 同一规则）
+    # Dual-class deduplication (same rule as build_portfolio)
     seen, out = set(), []
     for r in rows:
         co = r["entity"].replace(" INC", "").replace(".", "").strip()[:14]
@@ -97,7 +102,7 @@ def log_decision(date, ticker, action, rank, price, reason):
         csv.writer(f).writerow([date, ticker, action, rank, price, reason])
 
 
-# ---------- 主流程 ----------
+# ---------- main ----------
 def main():
     R = cfg["rules"]
     N = cfg["L5_count"]["target_holdings"]
@@ -106,17 +111,17 @@ def main():
     today = dt.date.today()
 
     if today.month not in R["review_months"]:
-        print(f"本月（{today.month} 月）非审查月（{R['review_months']}）—— 成分不动。")
+        print(f"Month {today.month} is not a review month ({R['review_months']}) — constituents unchanged.")
         return
     cur = load_constituents()
     if not cur:
-        print("台账尚未开账 —— 调仓不适用。"); return
+        print("Ledger not yet open — reconstitution does not apply."); return
     if any(r["entry_date"][:7] == today.isoformat()[:7] for r in cur if r["status"] == "active"):
-        print("本月已调过仓 —— 调仓是每审查期一次的动作，跳过。"); return
+        print("Already reconstituted this month — this is a once-per-review action, skipping."); return
 
     ranking = latest_ranking()
     if not ranking:
-        print("⚠️ 找不到候选名单，请先跑 run_screen —— 中止（不猜、不放宽）。"); sys.exit(1)
+        print("ERROR: no candidate list found; run run_screen first — aborting (no guessing, no relaxing)."); sys.exit(1)
     rank_of = {t: i + 1 for i, (t, _, _) in enumerate(ranking)}
     score_of = {t: s for t, _, s in ranking}
     entity_of = {t: e for t, e, _ in ranking}
@@ -127,33 +132,33 @@ def main():
 
     missing = [t for t in [r["ticker"] for r in active] if px.get(t, (None,))[0] is None]
     if missing:
-        print(f"⚠️ 在位成分取价失败 {missing} —— 中止调仓（宁可不调，也不用估算价）。")
+        print(f"ERROR: price fetch failed for incumbents {missing} — aborting reconstitution (better no change than an estimated price).")
         sys.exit(1)
 
-    # ---- 1. 决定留任 / 剔除 / 延后 ----
+    # ---- 1. Decide retain / remove / defer ----
     retain, exits = [], []
     for r in active:
         t = r["ticker"]
         rk = rank_of.get(t)
         price, ma = px[t]
         if rk is not None and rk <= exit_rank:
-            r["deferred_since"] = ""          # 回到安全区，清除延后标记
+            r["deferred_since"] = ""          # back inside the buffer: clear any deferral flag
             retain.append(r); continue
-        # 触发剔除条件
-        why = f"名次{rk}>{exit_rank}" if rk else "不再通过 L2/L3/L4"
+        # Removal condition triggered
+        why = f"rank {rk} > {exit_rank}" if rk else "no longer passes L2/L3/L4"
         if ma is not None and price > ma and not r.get("deferred_since"):
             r["deferred_since"] = today.isoformat()
             retain.append(r)
             log_decision(today, t, "DEFER", rk or "", round(price, 4),
-                         f"{why}，但价格在200日均线上方 → 延后一个审查期（规则自动，非人工裁量）")
+                         f"{why}, but price is above the 200d MA -> deferred one review period (rule-driven, not discretionary)")
         else:
             exits.append((r, price, why))
 
-    # ---- 2. 组合市值与留任者持有市值 ----
+    # ---- 2. Portfolio value and value held by retained names ----
     total_value = sum(float(r["units"]) * px[r["ticker"]][0] for r in active)
     freed = sum(float(r["units"]) * p for r, p, _ in exits)
 
-    # ---- 3. 选新进者（名次 ≤ N、动量过闸、且当前未持有）----
+    # ---- 3. Select entrants (rank <= N, passes the momentum gate, not currently held) ----
     held = {r["ticker"] for r in retain}
     vacancies = max(0, N - len(retain))
     entrants = []
@@ -165,14 +170,15 @@ def main():
         price, ma = px.get(t, (None, None))
         if price is None:
             continue
-        if ma is None or price <= ma:          # 动量否决：不接下跌趋势 / 数据不足不放行
+        if ma is None or price <= ma:          # momentum veto: no falling knives; insufficient history also blocks
             log_decision(today, t, "SKIP_MOMENTUM", rank_of[t],
                          round(price, 4) if price else "",
-                         "名次达标但价格未站上200日均线（或历史不足200根）→ 本期不买入")
+                         "rank qualifies but price is not above the 200d MA (or fewer than 200 bars) -> no purchase this period")
             continue
         entrants.append(t)
 
-    # ---- 4. 分配：新进者按得分比例吃掉 freed，封顶 8% 总市值；余额按比例给留任者 ----
+    # ---- 4. Allocate: entrants take the freed value in proportion to score, capped at 8% of
+    #         total value; any remainder goes pro rata to incumbents ----
     new_rows = []
     if entrants and freed > 0:
         raw = {t: score_of[t] for t in entrants}
@@ -188,27 +194,29 @@ def main():
                 "units": round(alloc / price, 8), "status": "active",
                 "exit_date": "", "deferred_since": ""})
             log_decision(today, t, "ADD", rank_of[t], round(price, 4),
-                         f"名次{rank_of[t]}≤{enter_rank}且站上200日均线，按得分分配 {target_w[t]*100:.2f}%")
+                         f"rank {rank_of[t]} <= {enter_rank} and above the 200d MA; score-allocated {target_w[t]*100:.2f}%")
         leftover = freed - sum(r["units"] * px[r["ticker"]][0] for r in new_rows)
     else:
         leftover = freed
 
-    # 余额按比例分给留任者（保持相对权重不变 → 不削赢家）
+    # Remainder distributed pro rata to incumbents (relative weights preserved -> winners not trimmed)
     if leftover > 1e-9 and retain:
         held_val = sum(float(r["units"]) * px[r["ticker"]][0] for r in retain)
         if held_val > 0:
             for r in retain:
                 r["units"] = round(float(r["units"]) * (1 + leftover / held_val), 8)
 
-    # ---- 5. 落库 ----
+    # ---- 5. Persist ----
     for r, price, why in exits:
         r["status"] = "removed"; r["exit_date"] = today.isoformat()
         log_decision(today, r["ticker"], "DROP", rank_of.get(r["ticker"], ""),
-                     round(price, 4), f"{why}（规则自动，非人工裁量）")
+                     round(price, 4), f"{why} (rule-driven, not discretionary)")
 
-    # cur 已包含全部历史行（active + 早前 removed），且 retain/exits 都是其中对象的
-    # 原地引用——上面的状态与份数修改已生效。故直接写 cur + 新进者，每行恰好一次。
-    # （曾误写成 removed_before + exits + retain + new_rows，导致本期剔除者被写两遍。）
+    # `cur` already holds every historical row (active + previously removed), and retain/exits
+    # are in-place references into it, so the status and unit edits above are already applied.
+    # Write cur + entrants: every row exactly once.
+    # (An earlier version wrote removed_before + exits + retain + new_rows, which duplicated
+    # this period's removals.)
     out = cur + new_rows
     with open(CONSTITUENTS, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
@@ -217,11 +225,11 @@ def main():
             w.writerow({k: r.get(k, "") for k in FIELDS})
 
     turnover = freed / total_value if total_value else 0
-    print(f"调仓完成 {today}：留任 {len(retain)} · 剔除 {len(exits)} · 新进 {len(new_rows)}"
-          f" · 单边换手 {turnover*100:.1f}%")
+    print(f"Reconstitution complete {today}: retained {len(retain)} · removed {len(exits)} · "
+          f"entered {len(new_rows)} · one-way turnover {turnover*100:.1f}%")
     if turnover > R["turnover_budget_annual"]:
-        print(f"⚠️ 换手 {turnover*100:.1f}% 超过年度预算 {R['turnover_budget_annual']*100:.0f}%"
-              f" —— 按规则仅记录告警，不调整任何规则。")
+        print(f"WARNING: turnover {turnover*100:.1f}% exceeds the annual budget of "
+              f"{R['turnover_budget_annual']*100:.0f}% — recorded as an alert only; no rule is adjusted.")
 
 
 if __name__ == "__main__":

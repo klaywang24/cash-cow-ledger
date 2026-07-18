@@ -1,8 +1,10 @@
 """
-Phase 1 主程序：跑 L1-L5 漏斗，输出当前候选名单 + 全量淘汰台账（带原因）。
+Main screening program: run the L1-L5 funnel, emit the current candidate list plus the
+full rejection ledger (with reasons).
 
-⚠️ 本系统主产品是向前跟踪的观察指数，不是回测。本次输出是【今天这一刻】用
-当前财务快照筛出的候选名单，供人工核对，不构成任何交易建议、不预测。
+NOTE: the product is a forward-tracked paper index, not a backtest. This output is the
+candidate list as screened from the CURRENT fundamentals snapshot. It is not a trading
+recommendation and makes no prediction.
 """
 from __future__ import annotations
 import sys, json, pathlib, csv, datetime as dt
@@ -17,7 +19,8 @@ TODAY = dt.date.today().isoformat()
 
 
 def load_universe():
-    """L1：标普500快照，剔除资产负债表型金融与REIT(框架不适用)，保留资产轻金融。"""
+    """L1: S&P 500 snapshot, dropping balance-sheet financials and REITs (the framework does
+    not apply to them) while keeping asset-light financials."""
     u = json.load(open(ROOT / "data/universe/sp500.json"))
     L1 = cfg["L1_universe"]
     exc_sectors = set(L1.get("exclude_sectors", []))
@@ -29,7 +32,7 @@ def load_universe():
         if r["sector"] == "Financials" and r["sub"] not in keep_fin_sub:
             dropped += 1; continue
         out.append(r["ticker"])
-    print(f"L1 剔除资产负债表金融/REIT {dropped} 只 → 剩 {len(out)} 只")
+    print(f"L1 dropped {dropped} balance-sheet financials/REITs -> {len(out)} remain")
     return out
 
 
@@ -45,11 +48,12 @@ def get_ust10y():
 
 
 def yf_valuation(ticker, fcf_latest):
-    """返回 (pe, fcf_yield, mktcap)。取不到返回 None，绝不用 0 顶替。
+    """Return (pe, fcf_yield, mktcap). Unavailable values return None, never 0.
 
-    ⚠️ 币种守卫：yfinance 的 marketCap 用交易货币(currency)，而财务数据用报表
-    货币(financialCurrency)。二者不同时(部分 ADR：USD 市值 / 本币报表)直接
-    相除会把收益率放大约 32 倍。此时 FCF 收益率一律判为不可得。
+    CURRENCY GUARD: yfinance reports marketCap in the trading currency but financials in
+    the reporting currency. When they differ (some ADRs: USD market cap against local-currency
+    statements), dividing one by the other inflates the yield by roughly 32x. In that case
+    FCF yield is treated as unavailable.
     """
     try:
         import yfinance as yf
@@ -58,7 +62,7 @@ def yf_valuation(ticker, fcf_latest):
         mktcap = info.get("marketCap")
         cur, fcur = info.get("currency"), info.get("financialCurrency")
         if cur and fcur and cur != fcur:
-            return pe, None, mktcap          # 币种错配 → 不算收益率
+            return pe, None, mktcap          # currency mismatch -> do not compute a yield
         fcfy = (fcf_latest / mktcap) if (fcf_latest and mktcap) else None
         return pe, fcfy, mktcap
     except Exception:
@@ -72,15 +76,16 @@ def norm(vals):
 
 
 def score_pool(recs):
-    """L5：在 L4 幸存池内做因子 min-max 归一 + 加权。就地写 rec['score']。"""
+    """L5: min-max normalize factors within the L4 survivor pool and weight them.
+    Writes rec['score'] in place."""
     if not recs:
         return
     w = cfg["L5_count"]["score_weights"]
     fcfy = norm([r["fcf_yield"] or 0 for r in recs])
     roic = norm([r["roic_avg"] or 0 for r in recs])
     gm = norm([r["gross_margin_latest"] or 0 for r in recs])
-    stab = norm([-(r["fcf_cv"] or 0) for r in recs])          # CV 越小越好
-    lowg = norm([-(r["asset_cagr"] or 0) for r in recs])      # 资产增速越低越好
+    stab = norm([-(r["fcf_cv"] or 0) for r in recs])          # lower CV is better
+    lowg = norm([-(r["asset_cagr"] or 0) for r in recs])      # lower asset growth is better
     for i, r in enumerate(recs):
         r["score"] = round(
             w["fcf_yield"]*fcfy[i] + w["roic"]*roic[i] + w["gross_margin"]*gm[i]
@@ -92,8 +97,8 @@ def main():
                  ("user_agent", "rate_limit_per_sec", "cache_dir", "cache_days")})
     universe = load_universe()
     ust10y = get_ust10y()
-    print(f"[{TODAY}] L1 宇宙 = {len(universe)} 只美股（标普500快照，已剔除资产负债表金融与REIT）")
-    print(f"L4 估值锚：10年期美债 = {ust10y*100:.2f}%\n")
+    print(f"[{TODAY}] L1 universe = {len(universe)} US names (S&P 500 snapshot, balance-sheet financials and REITs removed)")
+    print(f"L4 valuation anchor: 10y US Treasury = {ust10y*100:.2f}%\n")
 
     all_recs, quality_pass = [], []
     for i, t in enumerate(universe, 1):
@@ -101,7 +106,7 @@ def main():
         if d is None:
             all_recs.append({"ticker": t, "entity": None, "stage": "L1",
                              "status": "no_edgar", "data_incomplete": True,
-                             "reason": "EDGAR无此CIK/取数失败"})
+                             "reason": "No CIK in EDGAR / fetch failed"})
             continue
         rec = screen_us(d, cfg)
         rec["ticker"] = t
@@ -109,11 +114,11 @@ def main():
         if rec["status"] == "pass_quality":
             quality_pass.append(rec)
         if i % 100 == 0:
-            print(f"  ...已处理 {i}/{len(universe)}，通过质量层 {len(quality_pass)}")
+            print(f"  ...processed {i}/{len(universe)}, passed quality: {len(quality_pass)}")
 
-    print(f"\n通过 L2防雷 + L3质量 = {len(quality_pass)} 只，进入 L4 估值（取价）...")
+    print(f"\nPassed L2 landmines + L3 quality = {len(quality_pass)}; fetching prices for L4...")
 
-    # L4：只对质量幸存者取价
+    # L4: fetch prices only for quality survivors
     val_pass = []
     for r in quality_pass:
         pe, fcfy, mktcap = yf_valuation(r["ticker"], r["fcf_latest"])
@@ -122,9 +127,10 @@ def main():
         if r["status"] == "pass_valuation":
             val_pass.append(r)
 
-    # L5：打分、排名、取前 N
-    # 注：本指数仅含美股 / 仅取 EDGAR（见 METHODOLOGY §1）。任何需要人工录入
-    # 基本面的标的（外国私人发行人等）都不可机器复现，故结构上不在本指数范围内。
+    # L5: score, rank, take the top N.
+    # NOTE: this index covers US names via EDGAR only (METHODOLOGY §1). Any security whose
+    # fundamentals require manual entry (foreign private issuers and the like) cannot be
+    # machine-reproduced and is therefore structurally out of scope.
     score_pool(val_pass)
     val_pass.sort(key=lambda r: r["score"], reverse=True)
     lo, hi = cfg["L5_count"]["min_holdings"], cfg["L5_count"]["target_holdings"]
@@ -139,38 +145,38 @@ def write_outputs(all_recs, candidates, val_pass, ust10y):
     cols = ["ticker", "entity", "stage", "status", "fcf_positive_streak", "fcf_cv",
             "gross_margin_latest", "roic_avg", "asset_cagr", "rev_cagr",
             "net_debt_ebitda", "pe", "fcf_yield", "score", "reason"]
-    # 全量台账（含淘汰原因）
+    # Full ledger (including rejection reasons)
     with open(outdir / f"funnel_{TODAY}.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore"); w.writeheader()
         for r in sorted(all_recs, key=lambda x: (x.get("status") or "", x.get("ticker") or "")):
             w.writerow(r)
-    # 候选名单
+    # Candidate list
     with open(outdir / f"candidates_{TODAY}.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore"); w.writeheader()
         for r in candidates:
             w.writerow(r)
-    print(f"\n已写出：output/candidates_{TODAY}.csv  与  output/funnel_{TODAY}.csv")
+    print(f"\nWrote output/candidates_{TODAY}.csv and output/funnel_{TODAY}.csv")
 
 
 def print_summary(all_recs, quality_pass, val_pass, candidates, lo, hi):
     from collections import Counter
     c = Counter(r["status"] for r in all_recs)
     print("\n" + "="*70)
-    print("漏斗汇总：")
+    print("Funnel summary:")
     for k in ["no_edgar", "data_incomplete", "rejected", "pass_quality",
               "pass_valuation"]:
         if c.get(k):
             print(f"  {k:16}: {c[k]}")
-    print(f"\n候选名单（L4通过后按综合得分取前{hi}，实得{len(candidates)}）：")
-    print(f"{'排名':>3} {'票':7} {'得分':>6} {'FCF收益率':>8} {'ROIC':>6} "
-          f"{'毛利率':>6} {'PE':>6} {'FCF连正':>6}  公司")
+    print(f"\nCandidates (top {hi} by composite score after L4; {len(candidates)} found):")
+    print(f"{'#':>3} {'ticker':7} {'score':>6} {'FCFyld':>8} {'ROIC':>6} "
+          f"{'margin':>6} {'P/E':>6} {'FCFyrs':>6}  company")
     for i, r in enumerate(candidates, 1):
         print(f"{i:>3} {r['ticker']:7} {r.get('score',0):>6.3f} "
               f"{_pct(r.get('fcf_yield')):>8} {_pct(r.get('roic_avg')):>6} "
               f"{_pct(r.get('gross_margin_latest')):>6} {_num(r.get('pe')):>6} "
               f"{str(r.get('fcf_positive_streak') or '--'):>6}  {r.get('entity')}")
     if len(candidates) < lo:
-        print(f"\n⚠️ 候选不足下限 {lo}：当前规则偏严或估值层杀太多，需人工判断是否放宽。")
+        print(f"\nWARNING: only {len(candidates)} candidates, below the floor of {lo}. Recorded as an anomaly; rules are NOT relaxed.")
 
 
 def _pct(v): return f"{v*100:.1f}%" if v is not None else "--"

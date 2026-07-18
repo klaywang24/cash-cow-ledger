@@ -1,12 +1,13 @@
 """
-每个交易日计算一次指数点位，追加进台账。
+Compute the index level once per trading day and append it to the ledger.
 
-核心机制：台账存的是【份数(units)】而不是权重——这才是"入场后永不再平衡"的正确
-实现。开账时 units_i = 目标权重_i × 100 / 入场价_i；此后每日
-    点位 = Σ(units_i × 当日复权收盘价)
-权重随价格自然漂移，赢家自己膨胀，我们一股都不动。
+Core mechanism: the ledger stores UNITS, not weights — this is what makes "never
+rebalanced after entry" correct. At inception units_i = target_weight_i × 100 / entry_price_i;
+thereafter
+    level = sum(units_i × today's adjusted close)
+Weights drift with price and winners grow on their own; not a single share is touched.
 
-未设 inception_date 时本脚本安全退出——开账前不产生任何记录。
+If inception_date is unset the script exits safely — nothing is recorded before inception.
 """
 from __future__ import annotations
 import sys, csv, pathlib, datetime as dt
@@ -21,7 +22,7 @@ LEVELS = LEDGER / "index_level.csv"
 
 
 def load_active():
-    """返回 [(ticker, units)]，只含在册成分。"""
+    """Return [(ticker, units)] for active constituents only."""
     if not CONSTITUENTS.exists():
         return []
     rows = list(csv.DictReader(open(CONSTITUENTS)))
@@ -30,7 +31,8 @@ def load_active():
 
 
 def fetch_closes(tickers):
-    """取当日复权收盘价。任一取不到 → 返回 None，当日不落库(绝不用旧价顶替)。"""
+    """Fetch today's adjusted closes. If any is unavailable, return None and record nothing
+    for the day (never substitute a stale price)."""
     import yfinance as yf
     out = {}
     data = yf.download(tickers, period="5d", auto_adjust=True,
@@ -39,10 +41,10 @@ def fetch_closes(tickers):
         try:
             s = data[t]["Close"].dropna() if len(tickers) > 1 else data["Close"].dropna()
             if len(s) == 0:
-                return None, f"{t} 无价格"
+                return None, f"{t}: no price"
             out[t] = float(s.iloc[-1])
         except Exception as e:
-            return None, f"{t} 取价失败: {e}"
+            return None, f"{t}: price fetch failed: {e}"
     return out, None
 
 
@@ -54,22 +56,22 @@ def already_logged(date_str):
 
 def main():
     if not cfg["meta"].get("inception_date"):
-        print("尚未开账(config.meta.inception_date 为空)——不产生任何记录，正常退出。")
+        print("Not yet at inception (config.meta.inception_date is empty) — nothing recorded, exiting normally.")
         return
 
     active = load_active()
     if not active:
-        print("台账无在册成分——退出。")
+        print("Ledger has no active constituents — exiting.")
         return
 
     today = dt.date.today().isoformat()
     if already_logged(today):
-        print(f"{today} 已落库，跳过。")
+        print(f"{today} already recorded, skipping.")
         return
 
     closes, err = fetch_closes([t for t, _ in active])
     if closes is None:
-        print(f"⚠️ 当日不落库：{err}（宁可缺一天，也不用旧价或估算值顶替）")
+        print(f"WARNING: nothing recorded today: {err} (better a missing day than a stale or estimated price)")
         return
 
     level = sum(units * closes[t] for t, units in active)
@@ -81,7 +83,7 @@ def main():
         if new:
             w.writerow(["date", "level", "n_constituents"])
         w.writerow([today, round(level, 4), len(active)])
-    print(f"{today} 指数点位 {level:.4f}（{len(active)} 只成分）")
+    print(f"{today} index level {level:.4f} ({len(active)} constituents)")
 
 
 if __name__ == "__main__":

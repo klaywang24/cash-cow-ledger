@@ -1,11 +1,13 @@
 """
-开账：把当日成分按目标权重换算成【份数(units)】锁进台账，基点 100。
+Open the books: convert today's constituents from target weights into UNITS, lock them
+into the ledger, and set the base level to 100.
 
-只在 today >= inception_date 且台账尚未建立时执行一次；此后任何一天调用都会
-立即退出——开账是不可重复的动作。
+Runs exactly once, when today >= inception_date and the ledger does not yet exist; on any
+later day it exits immediately — opening the books is not a repeatable action.
 
-份数机制：units_i = 目标权重_i × 100 / 入场价_i。此后点位 = Σ(units_i × 当日价)，
-权重随价格自由漂移，我们一股不动（对应 METHODOLOGY §7.3「入场后永不再平衡」）。
+Units mechanism: units_i = target_weight_i × 100 / entry_price_i. Thereafter
+level = sum(units_i × today's price); weights drift freely with price and not a single
+share is touched (METHODOLOGY §7.3, "never rebalanced after entry").
 """
 from __future__ import annotations
 import sys, csv, glob, pathlib, datetime as dt
@@ -22,20 +24,20 @@ LEVELS = LEDGER / "index_level.csv"
 def main():
     inception = cfg["meta"].get("inception_date")
     if not inception:
-        print("未设开账日 —— 不动作。"); return
+        print("No inception date set — no action."); return
     today = dt.date.today()
     if today < dt.date.fromisoformat(str(inception)):
-        print(f"未到开账日（{inception}）—— 不动作。"); return
+        print(f"Before inception ({inception}) — no action."); return
     if CONSTITUENTS.exists():
-        print("台账已开 —— 开账是一次性动作，跳过。"); return
+        print("Ledger already open — opening is a one-time action, skipping."); return
 
-    # 取最近一次 build_portfolio 的成分（与开账同一工作流内生成）
+    # Take the constituents from the latest build_portfolio run (produced in the same workflow)
     files = sorted(glob.glob(str(ROOT / "output/book1_index_*.csv")))
     if not files:
-        print("⚠️ 找不到成分文件，请先跑 run_screen + build_portfolio。"); sys.exit(1)
+        print("ERROR: no constituent file found; run run_screen + build_portfolio first."); sys.exit(1)
     rows = list(csv.DictReader(open(files[-1])))
     if not rows:
-        print("⚠️ 成分文件为空，中止。"); sys.exit(1)
+        print("ERROR: constituent file is empty, aborting."); sys.exit(1)
 
     tickers = [r["ticker"] for r in rows]
     import yfinance as yf
@@ -47,7 +49,7 @@ def main():
             s = data[t]["Close"].dropna()
             prices[t] = float(s.iloc[-1])
         except Exception:
-            print(f"⚠️ {t} 取价失败 —— 开账中止（宁可不开，也不用估算价建仓）。")
+            print(f"ERROR: price fetch failed for {t} — aborting inception (better not to open than to open at an estimated price).")
             sys.exit(1)
 
     LEDGER.mkdir(parents=True, exist_ok=True)
@@ -66,8 +68,8 @@ def main():
         w.writerow(["date", "level", "n_constituents"])
         w.writerow([opened, "100.0000", len(rows)])
 
-    print(f"✅ 已开账 {opened}：{len(rows)} 只成分，基点 100.0000")
-    print("   此后每个交易日自动计算点位；成分只在每年 1 月/7 月首个交易日变动。")
+    print(f"Books opened {opened}: {len(rows)} constituents, base level 100.0000")
+    print("   The level is computed automatically each trading day; constituents change only on the first trading day of January and July.")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,16 @@
 """
-构建【第一本：机械指数】的成分与权重。100% 机械，无任何人工确认环节。
+Build the constituents and weights of Book One (the mechanical index).
+100% mechanical: there is no human confirmation step anywhere.
 
-权重规则（config.rules）：
-  - 按综合得分加权（不用 FCF 绝对额——那会系统性偏向"大而老"的成熟现金牛）
-  - 仅在入场时封顶 8%，超出部分按比例分给未封顶者（迭代至收敛）
-  - 入场后永不再平衡：权重随价格漂移，让赢家自己膨胀
+Weighting rules (config.rules):
+  - Composite-score weighted (not absolute FCF, which systematically favors large,
+    mature cash cows)
+  - Capped at 8% at entry only, with the excess redistributed pro rata among uncapped
+    names (iterated to convergence)
+  - Never rebalanced after entry: weights drift with price and winners are allowed to grow
 
-本指数不含任何人工裁量成分；裁量持仓（如有）记录于本仓库之外。
+This index contains no discretionary component; discretionary holdings, if any, are
+recorded outside this repository.
 """
 from __future__ import annotations
 import sys, csv, pathlib, datetime as dt
@@ -19,7 +23,8 @@ TODAY = dt.date.today().isoformat()
 
 
 def dedup_dual_class(rows):
-    """双重股权去重：同公司只留一只（候选已按得分排序，留高分那只）。"""
+    """Dual-class deduplication: keep one ticker per company (candidates are already
+    score-sorted, so the higher-scoring one wins)."""
     seen, out = set(), []
     for r in rows:
         co = r["entity"].replace(" INC", "").replace(".", "").strip()[:14]
@@ -30,7 +35,8 @@ def dedup_dual_class(rows):
 
 
 def cap_and_redistribute(weights: dict, cap: float) -> dict:
-    """把超过 cap 的权重削平，超出部分按比例分给未封顶者，迭代至收敛。"""
+    """Cap weights above `cap` and redistribute the excess pro rata among uncapped
+    names, iterating to convergence."""
     w = dict(weights)
     for _ in range(100):
         over = [k for k, v in w.items() if v > cap + 1e-12]
@@ -57,10 +63,10 @@ def main():
     cap = cfg["rules"]["entry_weight_cap"]
 
     if len(rows) < minN:
-        print(f"⚠️ 合格者仅 {len(rows)} 只，低于下限 {minN}——按规则记录，不补足、不放宽。")
-    book1 = rows[:N]                      # 按得分取前 N
+        print(f"WARNING: only {len(rows)} qualifiers, below the floor of {minN} — recorded per the rules; not backfilled, rules not relaxed.")
+    book1 = rows[:N]                      # top N by composite score
 
-    # 得分加权 + 入场封顶
+    # Score weighting + entry cap
     raw = {r["ticker"]: float(r["score"]) for r in book1}
     tot = sum(raw.values())
     w = cap_and_redistribute({k: v / tot for k, v in raw.items()}, cap)
@@ -91,17 +97,17 @@ def _p(v):
 
 
 def show(rows):
-    print(f"\n【第一本 · 机械指数】{TODAY} · N={len(rows)} · 得分加权 · 入场封顶"
-          f"{cfg['rules']['entry_weight_cap']*100:.0f}% · 入场后不再平衡")
-    print(f"{'#':>2} {'票':7} {'权重':>6} {'得分':>6} {'FCF收益':>7} {'ROIC':>6} {'利润率':>6} {'PE':>5}  公司")
+    print(f"\n[Book One - mechanical index] {TODAY} · N={len(rows)} · score-weighted · "
+          f"entry cap {cfg['rules']['entry_weight_cap']*100:.0f}% · never rebalanced after entry")
+    print(f"{'#':>2} {'ticker':7} {'wt':>6} {'score':>6} {'FCFyld':>7} {'ROIC':>6} {'margin':>6} {'P/E':>5}  company")
     for i, r in enumerate(rows, 1):
         pe = f"{float(r['pe']):.0f}" if r["pe"] else "--"
         print(f"{i:>2} {r['ticker']:7} {r['weight']*100:5.1f}% {float(r['score']):6.3f} "
               f"{_p(r['fcf_yield']):>7} {_p(r['roic_avg']):>6} {_p(r['gross_margin_latest']):>6} "
               f"{pe:>5}  {r['entity'][:30]}")
-    print(f"权重合计 {sum(r['weight'] for r in rows)*100:.1f}%"
-          f" · 最大单只 {max(r['weight'] for r in rows)*100:.1f}%"
-          f" · 最小 {min(r['weight'] for r in rows)*100:.1f}%")
+    print(f"Total weight {sum(r['weight'] for r in rows)*100:.1f}%"
+          f" · max {max(r['weight'] for r in rows)*100:.1f}%"
+          f" · min {min(r['weight'] for r in rows)*100:.1f}%")
 
 
 

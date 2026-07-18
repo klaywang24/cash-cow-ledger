@@ -1,15 +1,18 @@
 name: freshness monitor
 
-# 防「管线静默死亡」：daily.yml 若彻底报错，GitHub 会原生发失败邮件；
-# 但它也可能【报告成功却没产出任何数据】——那种情况下所有绿灯都是假的。
-# 本工作流独立读取台账数据本身的最新日期，过期就以非零码失败，
-# 从而触发 GitHub 原生失败通知（邮件），而不是推给一个没人看的频道。
+# Guards against silent pipeline death. If daily.yml errors outright, GitHub sends its own
+# failure email; but it can also REPORT SUCCESS WHILE PRODUCING NO DATA — and in that state
+# every green light is false.
+# This workflow independently reads the latest date in the ledger data itself and fails with
+# a non-zero exit code when stale, triggering GitHub's native failure notification by email
+# rather than posting to a channel nobody reads.
 #
-# ⚠️ 本工作流绝不使用 if: always() 之类会掩盖失败的写法——
-#    监控器自己响了假警报，比没有监控更危险。
+# NOTE: this workflow never uses constructs like `if: always()` that would mask a failure —
+#       a monitor that raises false all-clears is more dangerous than no monitor at all.
 on:
   schedule:
-    - cron: "0 13 * * *"     # 每天 13:00 UTC（约美东 09:00，早于当日更新，查的是昨天为止的状态）
+    - cron: "0 13 * * *"     # 13:00 UTC daily (~09:00 US Eastern, before the day's update, so
+                             # it checks the state as of the previous close)
   workflow_dispatch:
 
 jobs:

@@ -8,7 +8,8 @@
 一个**向前跟踪的观察指数(paper index)**:按公开、固定、可复现的规则,从美股中筛选
 "质量现金流"公司,每日计算指数点位,每半年调整一次成分。
 
-**规则见 [METHODOLOGY.md](METHODOLOGY.md)(v1.0)。`config.yaml` 是它的可执行副本。**
+**规则见 [METHODOLOGY.zh.md](METHODOLOGY.zh.md)(v1.0)。`config.yaml` 是它的可执行副本。**
+_English: [METHODOLOGY.md](METHODOLOGY.md)_
 
 ---
 

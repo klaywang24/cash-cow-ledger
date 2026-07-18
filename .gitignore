@@ -4,5 +4,5 @@ __pycache__/
 .DS_Store
 data/fundamentals_cache/
 
-# 个人私有内容，不进公开仓库
+# Personal private content; never enters the public repository
 data/private/

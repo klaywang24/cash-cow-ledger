@@ -1,234 +1,262 @@
-# 现金牛台账 · 指数方法论
+# Cash Cow Ledger · Index Methodology
 
-**版本:v1.0** ｜ 状态:**已定稿,待生效** ｜ **开账日:2026-07-20(周一)**
+**Version: v1.0** ｜ Status: **Final, pending effect** ｜ **Inception: 2026-07-20 (Monday)**
 
-> 本版本在开账日**之前**公开并被第三方时间戳锚定——这正是「规则未被事后调整」的证据。
+> This version was published and third-party timestamped **before** the inception date — which is
+> precisely the evidence that the rules were not adjusted after the fact.
 
-> 本文件是第一本(机械指数)的**唯一权威规则来源**。`config.yaml` 是它的可执行副本;
-> 二者若有冲突,以本文件为准,并须立即修正 config。
+> This document is the **sole authoritative source of rules** for Book One (the mechanical index).
+> `config.yaml` is its executable copy; if the two ever conflict, this document governs and the
+> config must be corrected immediately.
 >
-> **变更纪律**:本文件的任何修改都必须是**独立的 commit**,标题以 `methodology:` 开头,
-> 并写明改了什么、为什么改。**改规则的提交与更新数据的提交彻底分开**,以便任何第三方
-> 沿提交历史核验「在某段时间内规则未被改动」。
+> **Change discipline:** any modification to this file must be a **standalone commit** whose title
+> begins with `methodology:` and which states what changed and why. **Rule-change commits are kept
+> strictly separate from data-update commits**, so that any third party can walk the commit history
+> and verify that the rules went untouched across any given period.
+
+_中文版见 [METHODOLOGY.zh.md](METHODOLOGY.zh.md)._
 
 ---
 
-## 0. 这是什么,以及它不承诺什么
+## 0. What this is, and what it does not promise
 
-一个**向前跟踪的观察指数(paper index)**:按固定规则,从美股中筛选"质量现金流"公司,
-每日计算指数点位,每半年调整一次成分。
+A **forward-tracked paper index**: a fixed set of rules selects "quality cash flow" companies from
+US equities, the index level is computed every trading day, and constituents are reviewed twice a year.
 
-**它不承诺跑赢任何指数。** 它承诺的只有两件事:
+**It does not promise to outperform any index.** It promises exactly two things:
 
-1. **可复现**:任何人拿本文件 + 公开的 SEC EDGAR 数据,能算出与本台账完全相同的结果。
-2. **不回填**:开账日之后的每一次计算都被时间戳锚定,**规则不因结果好看与否而事后修改**;
-   跑输照登,永不删输家。
+1. **Reproducibility** — anyone with this document plus the public SEC EDGAR data can compute results
+   identical to this ledger.
+2. **No backfilling** — every computation after inception is timestamp-anchored; **rules are never
+   revised because results look good or bad**. Losing periods are published the same as winning ones;
+   losers are never deleted.
 
-**回测不是本产品。** 若日后发布任何回测,必须显著标注「存在前视偏差与幸存者偏差风险」。
+**Backtests are not the product.** Should any backtest be published later, it must be prominently
+labeled as carrying look-ahead and survivorship bias.
 
 ---
 
-## 1. 数据源
+## 1. Data sources
 
-| 用途 | 源 | 说明 |
+| Purpose | Source | Notes |
 |---|---|---|
-| 美股财务 | **SEC EDGAR `companyfacts` API** | 免费、无需密钥、XBRL 全历史(约 2009 起) |
-| 价格 / 估值 | yfinance | 仅取价格、市值、市盈率 |
-| 成分宇宙 | 标普 500 成分快照 | 见 §2 |
+| US fundamentals | **SEC EDGAR `companyfacts` API** | Free, no key, full XBRL history (from ~2009) |
+| Prices / valuation | yfinance | Price, market cap and trailing P/E only |
+| Constituent universe | S&P 500 snapshot | See §2 |
 
-**只用 `us-gaap` 税目、只取 `10-K` / `10-K/A` 且 `fp=FY` 的年度值。**
-外国私人发行人(只报 20-F、使用 `ifrs-full` 税目者)**结构上不在本指数范围内**——
-其财务数据无法用本管线机器复现。
+**Only `us-gaap` tags are used, and only annual values from `10-K` / `10-K/A` filings with `fp=FY`.**
+Foreign private issuers (those filing solely 20-F and using the `ifrs-full` taxonomy) are
+**structurally out of scope** — their statements cannot be machine-reproduced by this pipeline.
 
-### 1.1 数据缺失
+### 1.1 Missing data
 
-任一必需字段缺失 → 该标的标记 `data_incomplete`,**不参与打分、不入选**,并记录缺失原因。
-**禁止用 0、估算值或行业均值填充。**
+If any required field is missing, the security is flagged `data_incomplete`, **excluded from scoring
+and from selection**, and the reason is recorded. **Filling with zero, estimates or industry averages
+is forbidden.**
 
-### 1.2 已知的 XBRL 陷阱与处理(可复现性关键)
+### 1.2 Known XBRL pitfalls and their handling (critical to reproducibility)
 
-1. **同一概念跨会计准则换标签**(如收入在 ASC 606 前后分别用 `Revenues` 与
-   `RevenueFromContractWithCustomerExcludingAssessedTax`)→ 每个概念给一组候选标签,
-   靠前者优先,靠后者**仅用于补齐前者缺失的年份**(而非"取第一个非空标签就停")。
-2. **同一序列内量纲变化**(某些公司某年起改按百万申报)→ 仅当某年偏离序列中位数
-   ≈ 精确 1000ⁿ(容差 0.12 个对数级)时才归一;拆股/成长造成的非千倍变化一律放过。
-3. **拆股跳变**(股本序列)→ 从新到旧扫相邻年比值,接近常见拆股比例(2/3/1.5/4/5/6/7/8/10/15/20)
-   时按比例回溯调整。**股本一律使用加权稀释股本**(`WeightedAverageNumberOfDilutedSharesOutstanding`)。
-4. **停报小计导致陈旧值**(如某公司某年起不再申报毛利)→ **陈旧度闸**:任一指标的取值年份
-   须 ≥ `该公司收入序列最新财年 − 1`,否则视为缺失。
-5. **单步式利润表不报营业利润**(`OperatingIncomeLoss` 缺失)→ 回退
-   **EBIT = 税前利润 + 利息费用**。
-6. **币种错配**:yfinance 的市值用交易货币、财务数据用报表货币;二者不一致时
-   (如 ADR)**不计算 FCF 收益率**,判为不可得。
-
----
-
-## 2. L1 · 成分宇宙
-
-标普 500 成分快照,**剔除**:
-
-- GICS 行业 `Real Estate` 全部(REIT 以 FFO 而非 FCF 计量,框架不适用)
-- GICS 行业 `Financials`,**但保留**子行业 `Transaction & Payment Processing Services`
-  与 `Financial Exchanges & Data`
-
-**理由**:自由现金流 / 毛利率 / ROIC 这套框架对**资产负债表型金融**(银行、保险、消费金融)
-没有意义——它们的经营现金流包含存贷与浮存变动,ROIC 的"投入资本"口径不成立。
-而**资产轻的金融**(支付网络、交易所与数据商)有真实的利润率与自由现金流,故保留。
+1. **A concept changes tags across accounting standards** (e.g. revenue uses `Revenues` before ASC 606
+   and `RevenueFromContractWithCustomerExcludingAssessedTax` after) → each concept is given a list of
+   candidate tags; earlier tags take precedence, and later tags are used **only to fill years the
+   earlier ones are missing** (rather than "take the first non-empty tag and stop").
+2. **Magnitude shifts within one series** (some companies start reporting in millions from a given
+   year) → normalization is applied **only** when a year deviates from the series median by
+   approximately an exact factor of 1000ⁿ (tolerance 0.12 log units); non-thousand-fold changes caused
+   by splits or growth are left alone.
+3. **Stock-split discontinuities** (share-count series) → adjacent-year ratios are scanned newest to
+   oldest and back-adjusted when close to a common split factor (2 / 3 / 1.5 / 4 / 5 / 6 / 7 / 8 / 10 /
+   15 / 20). **Share counts always use weighted diluted shares**
+   (`WeightedAverageNumberOfDilutedSharesOutstanding`).
+4. **Stale values after a company stops reporting a subtotal** (e.g. gross profit no longer filed from
+   some year onward) → **staleness gate**: any metric's source year must be
+   ≥ `that company's latest revenue fiscal year − 1`, otherwise it is treated as missing.
+5. **Single-step income statements that omit operating income** (`OperatingIncomeLoss` absent) →
+   fall back to **EBIT = pre-tax income + interest expense**.
+6. **Currency mismatch**: yfinance reports market cap in the trading currency but financials in the
+   reporting currency; when the two differ (e.g. ADRs), **FCF yield is not computed** and is treated
+   as unavailable.
 
 ---
 
-## 3. L2 · 防雷排除(任一命中即剔除)
+## 2. L1 · Constituent universe
 
-| 规则 | 阈值 |
+An S&P 500 snapshot, **excluding**:
+
+- All of GICS sector `Real Estate` (REITs are measured by FFO rather than FCF; the framework does not apply)
+- GICS sector `Financials`, **except** the sub-industries `Transaction & Payment Processing Services`
+  and `Financial Exchanges & Data`
+
+**Rationale**: the free-cash-flow / gross-margin / ROIC framework is meaningless for **balance-sheet
+financials** (banks, insurers, consumer finance) — their operating cash flow embeds deposit, loan and
+float movements, and the "invested capital" denominator in ROIC does not hold. **Asset-light financials**
+(payment networks, exchanges and data vendors) do have genuine margins and free cash flow, and are kept.
+
+---
+
+## 3. L2 · Landmine exclusions (any single hit removes the name)
+
+| Rule | Threshold |
 |---|---|
-| 净利润 / 经营现金流 连续 N 年 > 阈值 | 比值 > 1.3,连续 3 年 |
-| 应收账款增速 > 收入增速 × 倍数 | > 2.0 倍,连续 2 年 |
-| 净股本近 N 年不降反升(容差 2%) | 回溯 3 年 |
-| 净负债 / EBITDA | > 3.0 |
+| Net income / operating cash flow above threshold for N consecutive years | ratio > 1.3, 3 consecutive years |
+| Receivables growth exceeding revenue growth by a multiple | > 2.0×, 2 consecutive years |
+| Net share count rising rather than falling over N years (2% tolerance) | 3-year lookback |
+| Net debt / EBITDA | > 3.0 |
 
 ---
 
-## 4. L3 · 质量入选(须全部满足)
+## 4. L3 · Quality inclusion (all must be satisfied)
 
-| 规则 | 阈值 |
+| Rule | Threshold |
 |---|---|
-| FCF 连续为正年数 | ≥ 7 年 |
-| FCF 变异系数(近 7 年,标准差/均值) | ≤ 0.60 |
-| 毛利率 | ≥ 30% |
-| 毛利率 10 年趋势 | 末值 ≥ 首值 × 0.95(不下行) |
-| ROIC 近 5 年均值 | ≥ 12% |
-| 总资产增速 ≤ 收入增速(近 3 年 CAGR,容差 1%) | 资本纪律 |
+| Consecutive years of positive FCF | ≥ 7 years |
+| FCF coefficient of variation (trailing 7 years, σ/μ) | ≤ 0.60 |
+| Gross margin | ≥ 30% |
+| 10-year gross-margin trend | last ≥ first × 0.95 (not declining) |
+| 5-year average ROIC | ≥ 12% |
+| Asset growth ≤ revenue growth (3-year CAGR, 1% tolerance) | capital discipline |
 
-**营业利润率兜底**:若公司**不申报毛利率相关科目**(如支付网络无 COGS 概念),
-则以**营业利润率 ≥ 20%** 替代上述两条毛利率规则。此兜底仅在毛利率不可得时启用。
+**Operating-margin fallback**: if a company **does not report gross-margin line items** (e.g. payment
+networks have no COGS concept), an **operating margin ≥ 20%** substitutes for the two gross-margin rules
+above. This fallback engages only when gross margin is unavailable.
 
-**FCF = 经营活动现金流 − 购建固定资产支出**。
-**ROIC = EBIT × (1 − 有效税率) / (股东权益 + 总债务 − 现金)**;有效税率取
-所得税费用/税前利润,落在 [0, 0.6] 之外或不可得时用 21%;投入资本 ≤ 0 时该年不计。
-
----
-
-## 5. L4 · 估值约束(满足其一即可)
-
-- FCF 收益率(FCF / 市值)**≥ 10 年期美国国债收益率**,**或**
-- 市盈率(TTM)**≤ 30**
-
-10 年期美债收益率取自 `^TNX`;不可得时用 4.5% 兜底。
+**FCF = cash flow from operations − payments to acquire property, plant and equipment.**
+**ROIC = EBIT × (1 − effective tax rate) / (shareholders' equity + total debt − cash)**; the effective
+rate is income tax expense / pre-tax income, replaced by 21% when it falls outside [0, 0.6] or is
+unavailable; years with invested capital ≤ 0 are skipped.
 
 ---
 
-## 6. L5 · 成分数量与综合得分
+## 5. L4 · Valuation constraint (either one suffices)
 
-**目标成分数 N = 20。** 合格者不足 15 只时,持有全部合格者并记录异常,
-**不补足、不放宽任何规则**。
+- FCF yield (FCF / market cap) **≥ the 10-year US Treasury yield**, **or**
+- Trailing P/E **≤ 30**
 
-**综合得分** = 各因子在合格池内 min-max 归一后加权:
+The 10-year Treasury yield is taken from `^TNX`, falling back to 4.5% when unavailable.
 
-| 因子 | 权重 |
+---
+
+## 6. L5 · Constituent count and composite score
+
+**Target constituent count N = 20.** If fewer than 15 names qualify, all qualifiers are held and the
+anomaly is recorded — **the shortfall is not filled and no rule is relaxed**.
+
+**Composite score** = min-max normalized factors within the qualifying pool, weighted:
+
+| Factor | Weight |
 |---|---|
-| FCF 收益率 | 0.30 |
+| FCF yield | 0.30 |
 | ROIC | 0.25 |
-| 毛利率 | 0.20 |
-| FCF 稳定性(变异系数取负) | 0.15 |
-| 低资产增速(取负) | 0.10 |
+| Gross margin | 0.20 |
+| FCF stability (negated coefficient of variation) | 0.15 |
+| Low asset growth (negated) | 0.10 |
 
-**双重股权去重**:同一公司多个股票代码只保留得分最高的一只。
-
----
-
-## 7. 成分调整规则
-
-### 7.1 审查时点
-
-**每年 1 月与 7 月的第一个交易日。其余任何时间,成分一律不变**——
-包括期中出现的防雷信号、财报变化或价格剧烈波动。简单即可审计。
-
-### 7.2 名次缓冲带(滞回)
-
-- **新进**:综合得分名次 **≤ 20**,且价格在 **200 日均线上方**(动量否决)。
-- **剔除**:在位成分名次跌至 **> 40**,或当期不再通过 L2/L3/L4。
-  **例外**:该剔除但价格仍在 200 日均线上方者,**延后一个审查期**。
-- 剔除产生的空位,由未持有者中名次最高的依次补足至 N = 20。
-
-用**绝对名次**而非百分位:合格池仅二十余只时,"前 20%"会退化成只剩四五只。
-
-### 7.3 权重
-
-- **仅在入场时定权重**:新进成分按综合得分比例分配,**单只封顶 8%**,
-  超出部分按比例分给未封顶者(迭代至收敛)。
-- **入场后永不再平衡。** 权重随价格自由漂移,赢家膨胀不予削减。
-- 剔除者释放的权重优先分配给新进者;有余则按比例分给在位成分
-  (按比例分配**保持在位成分之间的相对权重不变**,故不违反"不削赢家")。
-
-**为何按得分而非 FCF 绝对额加权**:按 FCF 绝对额会系统性偏向体量大的成熟公司
-(实测:Altria 权重由 11.8% 降至 6.8%,最大/最小极差由 16× 收敛至 2.3×)。
-卫星组合应按**吸引力**而非**体量**下注。
-
-### 7.4 换手
-
-年换手超过 25% 时**记录告警**。告警仅作记录,**不触发任何规则调整**。
+**Dual-class deduplication**: where one company has multiple tickers, only the highest-scoring one is kept.
 
 ---
 
-## 8. 指数点位
+## 7. Reconstitution rules
 
-- 基点 **100**,起始于开账日。
-- 以**复权收盘价**计算(近似含股息的总回报口径)。
-- **每个交易日计算一次**并落库。成分不变期间,点位仅随价格变化。
+### 7.1 Review dates
+
+**The first trading day of January and of July. At every other time, constituents do not change** —
+including on mid-period landmine signals, earnings changes or violent price moves. Simplicity is what
+makes it auditable.
+
+### 7.2 Rank buffer (hysteresis)
+
+- **Entry**: composite-score rank **≤ 20**, and price **above the 200-day moving average** (momentum veto).
+- **Removal**: an incumbent falls to rank **> 40**, or no longer passes L2/L3/L4.
+  **Exception**: an incumbent due for removal whose price is still above its 200-day moving average is
+  **deferred by one review period**.
+- Vacancies created by removals are filled by the highest-ranked non-holders, up to N = 20.
+
+Absolute ranks are used rather than percentiles: when the qualifying pool holds only twenty-odd names,
+"top 20%" degenerates to four or five.
+
+### 7.3 Weighting
+
+- **Weights are set at entry only**: entrants are allocated in proportion to composite score, **capped
+  at 8% per name**, with the excess redistributed pro rata among uncapped names (iterated to convergence).
+- **Never rebalanced after entry.** Weights drift freely with price; winners are not trimmed as they grow.
+- Weight released by removals goes first to entrants; any remainder is distributed pro rata across
+  incumbents (**pro-rata distribution preserves the relative weights among incumbents**, so it does not
+  violate "never trim the winners").
+
+**Why score-weighted rather than absolute-FCF-weighted**: weighting by absolute FCF systematically
+favors large mature companies (measured: Altria's weight fell from 11.8% to 6.8%, and the max/min spread
+compressed from 16× to 2.3×). A satellite sleeve should bet on **attractiveness**, not **size**.
+
+### 7.4 Turnover
+
+Annual turnover above 25% **records an alert**. The alert is a record only and **triggers no rule change**.
 
 ---
 
-## 9. 不可篡改性
+## 8. Index level
 
-- 全部数据与本方法论托管于**公开 Git 仓库**,提交时间由 GitHub 第三方背书。
-- 每次数据更新后向 **Internet Archive (Wayback Machine)** 提交快照。
-- 提交类型严格分离:`methodology:`(规则变更)/ `data:`(数据更新)/ 其他。
-- **官方源日后修订历史数据时,本台账旧记录保持原样**,修订另行注明,绝不悄悄覆盖。
-
----
-
-## 10. 明确不做的事
-
-- 不自动交易、不接任何券商 API。
-- 不因回测好看而放宽规则。
-- 不在数据缺失时用估算值继续计算。
-- 不构成任何投资建议。
+- Base level **100**, starting on the inception date.
+- Computed from **adjusted close prices** (approximating total return including dividends).
+- Computed and stored **once per trading day**. While constituents are unchanged, the level moves with
+  price alone.
 
 ---
 
-## 附:人工裁量不属于本方法论
+## 9. Tamper-evidence
 
-本指数**不含任何人工裁量成分**。作者个人的裁量持仓(如有)记录于本仓库之外,
-**与本指数完全隔离,不影响本指数的任何计算**。分离的目的,是让本指数保持
-100% 机械、可复现、可审计——任何裁量都会破坏这三点。
+- All data and this methodology are hosted in a **public Git repository**; commit times are attested by
+  GitHub as a third party.
+- Every data update is snapshotted to the **Internet Archive (Wayback Machine)**.
+- Commit types are strictly separated: `methodology:` (rule change) / `data:` (data update) / other.
+- **When an official source later revises historical data, the existing ledger records stay as they are**;
+  the revision is noted separately and never silently overwrites.
 
 ---
 
-## 变更历史
+## 10. Explicitly not done
 
-| 版本 | 日期 | 变更 |
+- No automated trading; no brokerage API of any kind.
+- Rules are never relaxed because a backtest looks good.
+- Computation never continues on estimated values when data is missing.
+- Nothing here constitutes investment advice.
+
+---
+
+## Appendix A: Human discretion is not part of this methodology
+
+This index contains **no discretionary component**. The author's personal discretionary holdings, if any,
+are recorded outside this repository and are **entirely isolated from the index, affecting none of its
+calculations**. The separation exists to keep the index 100% mechanical, reproducible and auditable —
+any discretion would destroy all three.
+
+---
+
+## Appendix B: Implementation status (guarding against "documented but not built")
+
+This table verifies that every clause of the methodology is actually implemented in code. **It must be
+updated whenever a rule is added** — "promised in the document but absent from the code" is the class of
+defect most likely to turn into a rule violation six months later.
+
+| Methodology clause | Implemented in | Status |
 |---|---|---|
-| v1.0 | 2026-07-18 | 首版。开账前定稿并公开锚定；开账日定为 2026-07-20。 |
+| §1 Data sources and the six XBRL pitfalls | `src/edgar.py` / `src/metrics.py` | ✅ |
+| §2 L1 universe, financials/REIT exclusion | `src/run_screen.py::load_universe` | ✅ |
+| §3 L2 landmines | `src/screen.py::screen_us` | ✅ |
+| §4 L3 quality + operating-margin fallback | `src/screen.py::screen_us` | ✅ |
+| §5 L4 valuation | `src/screen.py::apply_valuation` | ✅ |
+| §6 L5 count and composite score | `src/run_screen.py::score_pool` / `build_portfolio` | ✅ |
+| §7.1 Review dates (January / July) | `src/reconstitute.py` + `daily.yml` | ✅ |
+| §7.2 Rank buffer + two-sided momentum veto | `src/reconstitute.py` | ✅ |
+| §7.3 Weighting and "never rebalanced after entry" | `src/build_portfolio.py` / `open_books.py` / `reconstitute.py` | ✅ |
+| §7.4 Turnover budget alert | `src/reconstitute.py` | ✅ |
+| §8 Index level (units mechanism) | `src/daily_level.py` | ✅ |
+| §9 Tamper-evidence (public repo / Wayback / commit typing) | `.github/workflows/daily.yml` | ✅ |
+| — Ledger freshness monitor | `src/check_freshness.py` + `monitor.yml` | ✅ |
 
 ---
 
-## 附二:实现状态对照(防「文档写了、代码没有」)
+## Change history
 
-本表用于核验方法论的每一条是否真的落进了代码。**新增规则时必须同步更新本表**——
-「文档承诺了但代码没实现」是最容易在半年后变成违规的一类缺陷。
-
-| 方法论条款 | 实现位置 | 状态 |
+| Version | Date | Change |
 |---|---|---|
-| §1 数据源与 XBRL 六坑 | `src/edgar.py` / `src/metrics.py` | ✅ |
-| §2 L1 宇宙与金融/REIT 剔除 | `src/run_screen.py::load_universe` | ✅ |
-| §3 L2 防雷 | `src/screen.py::screen_us` | ✅ |
-| §4 L3 质量 + 营业利润率兜底 | `src/screen.py::screen_us` | ✅ |
-| §5 L4 估值 | `src/screen.py::apply_valuation` | ✅ |
-| §6 L5 数量与综合得分 | `src/run_screen.py::score_pool` / `build_portfolio` | ✅ |
-| §7.1 审查时点(1月/7月) | `src/reconstitute.py` + `daily.yml` | ✅ |
-| §7.2 名次缓冲带 + 双向动量否决 | `src/reconstitute.py` | ✅ |
-| §7.3 权重与「入场后不再平衡」 | `src/build_portfolio.py` / `open_books.py` / `reconstitute.py` | ✅ |
-| §7.4 换手预算告警 | `src/reconstitute.py` | ✅ |
-| §8 指数点位(份数机制) | `src/daily_level.py` | ✅ |
-| §9 不可篡改(公开库/Wayback/提交分类) | `.github/workflows/daily.yml` | ✅ |
-| — 台账新鲜度监控 | `src/check_freshness.py` + `monitor.yml` | ✅ |
+| v1.0 | 2026-07-18 | First version. Finalized and publicly anchored before inception; inception set to 2026-07-20. |

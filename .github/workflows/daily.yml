@@ -1,10 +1,12 @@
 name: daily index
 
-# 每个交易日收盘后计算指数点位并落库；每年1月/7月首个交易日另做成分审查。
-# 提交类型严格分离：本工作流只产生 `data:` 提交，绝不改动规则文件。
+# Compute and record the index level after each trading day's close; additionally review
+# constituents on the first trading day of January and July.
+# Commit types are strictly separated: this workflow only produces `data:` commits and
+# never touches the rule files.
 on:
   schedule:
-    - cron: "30 21 * * 1-5"   # 21:30 UTC ≈ 美东收盘后（周一至周五）
+    - cron: "30 21 * * 1-5"   # 21:30 UTC, shortly after the US close (Mon-Fri)
   workflow_dispatch:
 
 permissions:
@@ -23,8 +25,8 @@ jobs:
       - name: install deps
         run: pip install --quiet requests pyyaml pandas yfinance
 
-      # 开账日（及每年1月/7月首个交易日的审查）需要先跑筛选与成分构建。
-      # open_books 自身幂等：已开账或未到开账日都会立即退出。
+      # Inception (and the January/July reviews) must run the screen and portfolio build first.
+      # open_books is idempotent: it exits immediately if already open or before inception.
       - name: screen + build (only needed at inception / reconstitution)
         run: |
           if [ ! -f data/ledger/constituents.csv ]; then
@@ -35,8 +37,9 @@ jobs:
       - name: open books (one-time, idempotent)
         run: python -m src.open_books
 
-      # 半年一次的成分调整：reconstitute 自身判定是否审查月、本月是否已调过，
-      # 非审查期立即退出。审查期需要最新排名，故先跑筛选。
+      # Semi-annual reconstitution: reconstitute decides for itself whether this is a review
+      # month and whether it already ran, exiting immediately otherwise. A review needs the
+      # latest ranking, so the screen runs first.
       - name: reconstitute (Jan / Jul only, self-gating)
         run: |
           if [ -f data/ledger/constituents.csv ]; then
@@ -62,7 +65,7 @@ jobs:
           git commit -m "data: daily index level $(date -u +%F)"
           git push
 
-      # 第三方时间戳锚：Wayback 不稳定属常态，任何失败都不许影响管线。
+      # Third-party timestamp anchor. Wayback is routinely flaky; no failure may affect the pipeline.
       - name: anchor to Wayback
         continue-on-error: true
         run: |

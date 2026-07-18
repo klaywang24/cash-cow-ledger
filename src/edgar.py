@@ -1,13 +1,14 @@
 """
-SEC EDGAR companyfacts 客户端 + 年度财务指标提取。
+SEC EDGAR companyfacts client + annual financial metric extraction.
 
-设计要点（XBRL 的坑都在这里）：
-- 同一经济概念在不同公司/不同年份可能用不同 us-gaap 标签申报，故每个
-  概念给一组候选标签，按顺序回退。
-- 只取年度值：优先 form=10-K 且 fp=FY；流量项（收入/现金流）要求期间
-  约等于一年（~365 天），排除季度/半年重叠段。
-- 每个财年可能有多条（原报 + 后续重述），取“该财年 end 日期最新的一条”。
-- 缺失就是缺失：取不到返回 None，绝不猜、绝不填 0。
+Design notes (every XBRL pitfall lives here):
+- One economic concept may be filed under different us-gaap tags across companies
+  and years, so each concept gets a list of candidate tags with ordered fallback.
+- Annual values only: form=10-K with fp=FY; flow items (revenue, cash flow) must
+  span roughly one year (~365 days), excluding quarterly and overlapping periods.
+- A fiscal year may have several entries (original filing plus later restatements);
+  the one with the latest `end` date for that year wins.
+- Missing means missing: return None, never guess, never fill with zero.
 """
 from __future__ import annotations
 import json
@@ -34,7 +35,7 @@ class Edgar:
         self.cache_days = cache_days
         self._ticker_map: Optional[dict] = None
 
-    # ---------- 低层：限流 GET ----------
+    # ---------- low level: rate-limited GET ----------
     def _get(self, url: str) -> requests.Response:
         wait = self._min_interval - (time.monotonic() - self._last_call)
         if wait > 0:
@@ -77,18 +78,19 @@ class Edgar:
         age = time.time() - path.stat().st_mtime
         return age < self.cache_days * 86400
 
-    # ---------- 年度序列提取 ----------
+    # ---------- annual series extraction ----------
     @staticmethod
     def annual_series(facts: dict, concepts: list[str], unit: str,
                       flow: bool) -> dict[int, float]:
         """
-        返回 {财年: 值}。concepts 为候选标签列表：靠前的标签优先，靠后的
-        标签仅用来【补齐前者缺失的年份】——因为同一概念的 XBRL 标签会随
-        会计准则变更（如 ASC 606 收入）而更换，单取一个标签会丢早年历史。
-        flow=True 表示流量项（要求期间≈1年）；flow=False 表示时点项（余额）。
+        Return {fiscal_year: value}. `concepts` is a candidate tag list: earlier tags
+        take precedence, later tags are used ONLY to fill years the earlier ones lack.
+        A concept's XBRL tag changes when accounting standards change (e.g. ASC 606
+        revenue), so taking a single tag silently drops the early history.
+        flow=True marks flow items (period must be ~1 year); flow=False marks balances.
         """
         usgaap = facts.get("facts", {}).get("us-gaap", {})
-        merged: dict[int, float] = {}          # fy -> val（先到先得，靠前标签赢）
+        merged: dict[int, float] = {}          # fy -> val (first writer wins; earlier tags win)
         for tag in concepts:
             node = usgaap.get(tag)
             if not node:
@@ -110,20 +112,20 @@ class Edgar:
                     if not start:
                         continue
                     days = (dt.date.fromisoformat(end) - dt.date.fromisoformat(start)).days
-                    if not (350 <= days <= 380):   # 只要整年段
+                    if not (350 <= days <= 380):   # whole-year periods only
                         continue
                 fy = e.get("fy")
                 if fy is None:
                     fy = dt.date.fromisoformat(end).year
-                # 同财年多条：取 end 最新的（= 最近一次重述/申报）
+                # Several entries per fiscal year: keep the latest `end` (newest restatement)
                 if fy not in by_year or end > by_year[fy][0]:
                     by_year[fy] = (end, val)
             for fy, (_, val) in by_year.items():
-                merged.setdefault(fy, val)     # 只补前面标签没有的年份
+                merged.setdefault(fy, val)     # only fill years earlier tags lack
         return merged
 
 
-# ---- 候选标签库：一个经济概念 -> 多个可能的 XBRL 标签 ----
+# ---- Candidate tag library: one economic concept -> several possible XBRL tags ----
 TAGS = {
     "revenue": ["RevenueFromContractWithCustomerExcludingAssessedTax",
                 "Revenues",
@@ -151,7 +153,8 @@ TAGS = {
     "dda": ["DepreciationDepletionAndAmortization",
             "DepreciationAmortizationAndAccretionNet",
             "DepreciationAndAmortization"],
-    # 用加权稀释股本：us-gaap 覆盖更全，且按拆股回溯调整，做“净股本变化”才不被拆股骗
+    # Weighted diluted shares: better us-gaap coverage and retroactively split-adjusted,
+    # so the "net share change" test is not fooled by splits
     "shares": ["WeightedAverageNumberOfDilutedSharesOutstanding",
                "WeightedAverageNumberOfSharesOutstandingBasic"],
     "income_tax": ["IncomeTaxExpenseBenefit"],
@@ -161,11 +164,12 @@ TAGS = {
 
 FLOW = {"revenue", "gross_profit", "cost_of_revenue", "net_income", "ocf",
         "capex", "operating_income", "interest_expense", "dda", "income_tax",
-        "pretax_income", "shares"}   # 加权股本是区间(duration)概念
+        "pretax_income", "shares"}   # weighted share count is a duration concept
 
 
 def extract_all(edgar: "Edgar", ticker: str) -> Optional[dict]:
-    """提取一只票的全部年度序列。返回 {概念: {财年: 值}}，取不到的概念为 {}。"""
+    """Extract all annual series for one ticker. Returns {concept: {fiscal_year: value}};
+    concepts that cannot be resolved come back as {}."""
     facts = edgar.companyfacts(ticker)
     if facts is None:
         return None

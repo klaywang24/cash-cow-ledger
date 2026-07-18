@@ -14,6 +14,7 @@
 [![中文](https://img.shields.io/badge/%E4%B8%AD%E6%96%87-README-2b5f8f)](README.zh.md)
 
 **Methodology: [METHODOLOGY.md](METHODOLOGY.md) (v1.0)** — `config.yaml` is its executable copy.
+_Chinese version: [METHODOLOGY.zh.md](METHODOLOGY.zh.md)_
 
 ---
 
