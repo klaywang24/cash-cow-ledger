@@ -11,7 +11,7 @@ import sys, json, pathlib, csv, datetime as dt
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
 from src.edgar import Edgar, extract_all
-from src.screen import screen_us, apply_valuation
+from src.screen import screen_us, apply_valuation, dedup_dual_class
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 cfg = yaml.safe_load(open(ROOT / "config.yaml"))
@@ -134,13 +134,17 @@ def main():
     score_pool(val_pass)
     val_pass.sort(key=lambda r: r["score"], reverse=True)
     lo, hi = cfg["L5_count"]["min_holdings"], cfg["L5_count"]["target_holdings"]
-    candidates = val_pass[:hi]
+    # One seat per company, enforced BEFORE the top-N cut (see ERRATA.md 2026-07-21).
+    # The FULL deduplicated ranking is written out, not just the top N: §7.2 removal
+    # needs ranks beyond N (exit buffer at 2N), which a truncated file cannot provide.
+    ranking = dedup_dual_class(val_pass)
+    candidates = ranking[:hi]
 
-    write_outputs(all_recs, candidates, val_pass, ust10y)
+    write_outputs(all_recs, ranking, val_pass, ust10y)
     print_summary(all_recs, quality_pass, val_pass, candidates, lo, hi)
 
 
-def write_outputs(all_recs, candidates, val_pass, ust10y):
+def write_outputs(all_recs, ranking, val_pass, ust10y):
     outdir = ROOT / "output"; outdir.mkdir(exist_ok=True)
     cols = ["ticker", "entity", "stage", "status", "fcf_positive_streak", "fcf_cv",
             "gross_margin_latest", "roic_avg", "asset_cagr", "rev_cagr",
@@ -150,10 +154,11 @@ def write_outputs(all_recs, candidates, val_pass, ust10y):
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore"); w.writeheader()
         for r in sorted(all_recs, key=lambda x: (x.get("status") or "", x.get("ticker") or "")):
             w.writerow(r)
-    # Candidate list
+    # Deduplicated ranking of all L4 survivors (one row per company; the top N are the
+    # candidates, deeper ranks feed the §7.2 exit buffer at reconstitution)
     with open(outdir / f"candidates_{TODAY}.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore"); w.writeheader()
-        for r in candidates:
+        for r in ranking:
             w.writerow(r)
     print(f"\nWrote output/candidates_{TODAY}.csv and output/funnel_{TODAY}.csv")
 

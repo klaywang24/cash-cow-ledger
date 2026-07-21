@@ -16,22 +16,11 @@ from __future__ import annotations
 import sys, csv, pathlib, datetime as dt
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
+from src.screen import dedup_dual_class
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 cfg = yaml.safe_load(open(ROOT / "config.yaml"))
 TODAY = dt.date.today().isoformat()
-
-
-def dedup_dual_class(rows):
-    """Dual-class deduplication: keep one ticker per company (candidates are already
-    score-sorted, so the higher-scoring one wins)."""
-    seen, out = set(), []
-    for r in rows:
-        co = r["entity"].replace(" INC", "").replace(".", "").strip()[:14]
-        if co in seen:
-            continue
-        seen.add(co); out.append(r)
-    return out
 
 
 def cap_and_redistribute(weights: dict, cap: float) -> dict:
@@ -57,6 +46,10 @@ def cap_and_redistribute(weights: dict, cap: float) -> dict:
 def main():
     cand = list(csv.DictReader(open(ROOT / f"output/candidates_{TODAY}.csv")))
     rows = dedup_dual_class(cand)
+    if len(rows) != len(cand):
+        sys.exit(f"ERROR: candidates file carries {len(cand) - len(rows)} duplicate share "
+                 "class(es) — run_screen must deduplicate before the top-N cut (a duplicate "
+                 "inside the cut burns a seat and shrinks the index; see ERRATA.md). Refusing to build.")
 
     N = cfg["L5_count"]["target_holdings"]
     minN = cfg["L5_count"]["min_holdings"]

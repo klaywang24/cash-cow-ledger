@@ -19,6 +19,7 @@ from __future__ import annotations
 import sys, csv, glob, pathlib, datetime as dt
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
+from src.screen import dedup_dual_class
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 cfg = yaml.safe_load(open(ROOT / "config.yaml"))
@@ -68,15 +69,7 @@ def latest_ranking():
     if not files:
         return []
     rows = list(csv.DictReader(open(files[-1])))
-    # Dual-class deduplication (same rule as build_portfolio)
-    seen, out = set(), []
-    for r in rows:
-        co = r["entity"].replace(" INC", "").replace(".", "").strip()[:14]
-        if co in seen:
-            continue
-        seen.add(co)
-        out.append((r["ticker"], r["entity"], float(r["score"])))
-    return out
+    return [(r["ticker"], r["entity"], float(r["score"])) for r in dedup_dual_class(rows)]
 
 
 def cap_and_redistribute(weights: dict, cap: float) -> dict:

@@ -99,6 +99,22 @@ def apply_valuation(rec: dict, pe: Optional[float], fcf_yield: Optional[float],
     return rec
 
 
+def dedup_dual_class(rows: list[dict]) -> list[dict]:
+    """One seat per company (METHODOLOGY §6, dual-class deduplication): rows arrive
+    score-sorted, so the higher-scoring share class wins.
+
+    Must run BEFORE any top-N truncation. Two share classes inside the cut burn a seat
+    and shrink the index below target N — exactly how inception 2026-07-20 opened with
+    19 of 20 constituents (FOX + FOXA; see ERRATA.md)."""
+    seen, out = set(), []
+    for r in rows:
+        co = r["entity"].replace(" INC", "").replace(".", "").strip()[:14]
+        if co in seen:
+            continue
+        seen.add(co); out.append(r)
+    return out
+
+
 def composite_score(rec: dict, cfg: dict) -> float:
     """L5 composite score: factor weights applied to within-pool normalized ranks.
     Raw factors are computed here; normalization happens at the ranking stage."""
