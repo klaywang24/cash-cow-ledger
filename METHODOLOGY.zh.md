@@ -132,7 +132,8 @@
 | FCF 稳定性(变异系数取负) | 0.15 |
 | 低资产增速(取负) | 0.10 |
 
-**双重股权去重**:同一公司多个股票代码只保留得分最高的一只。
+**双重股权去重**:同一公司多个股票代码只保留得分最高的一只。去重在取前 N **之前**执行:
+重复股类不得占席(见 [ERRATA.zh.md](ERRATA.zh.md),2026-07-21)。
 
 ---
 
@@ -209,6 +210,7 @@
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1.0 | 2026-07-18 | 首版。开账前定稿并公开锚定；开账日定为 2026-07-20。 |
+| v1.0.1 | 2026-07-21 | 仅机制修复,规则与阈值不变:双重股权去重移到取前 N 之前;候选文件输出完整排名;新增重复占席守卫([ERRATA.zh.md](ERRATA.zh.md))。 |
 
 ---
 
@@ -225,6 +227,7 @@
 | §4 L3 质量 + 营业利润率兜底 | `src/screen.py::screen_us` | ✅ |
 | §5 L4 估值 | `src/screen.py::apply_valuation` | ✅ |
 | §6 L5 数量与综合得分 | `src/run_screen.py::score_pool` / `build_portfolio` | ✅ |
+| §6 双重股权去重(取前 N 之前) | `src/screen.py::dedup_dual_class` + `build_portfolio` 守卫 | ✅ |
 | §7.1 审查时点(1月/7月) | `src/reconstitute.py` + `daily.yml` | ✅ |
 | §7.2 名次缓冲带 + 双向动量否决 | `src/reconstitute.py` | ✅ |
 | §7.3 权重与「入场后不再平衡」 | `src/build_portfolio.py` / `open_books.py` / `reconstitute.py` | ✅ |

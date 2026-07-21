@@ -151,7 +151,9 @@ anomaly is recorded — **the shortfall is not filled and no rule is relaxed**.
 | FCF stability (negated coefficient of variation) | 0.15 |
 | Low asset growth (negated) | 0.10 |
 
-**Dual-class deduplication**: where one company has multiple tickers, only the highest-scoring one is kept.
+**Dual-class deduplication**: where one company has multiple tickers, only the highest-scoring
+one is kept — applied **before** the top-N cut, so a duplicate share class can never burn a
+seat (see [ERRATA.md](ERRATA.md), 2026-07-21).
 
 ---
 
@@ -245,6 +247,7 @@ defect most likely to turn into a rule violation six months later.
 | §4 L3 quality + operating-margin fallback | `src/screen.py::screen_us` | ✅ |
 | §5 L4 valuation | `src/screen.py::apply_valuation` | ✅ |
 | §6 L5 count and composite score | `src/run_screen.py::score_pool` / `build_portfolio` | ✅ |
+| §6 Dual-class dedup, before the top-N cut | `src/screen.py::dedup_dual_class` + guard in `build_portfolio` | ✅ |
 | §7.1 Review dates (January / July) | `src/reconstitute.py` + `daily.yml` | ✅ |
 | §7.2 Rank buffer + two-sided momentum veto | `src/reconstitute.py` | ✅ |
 | §7.3 Weighting and "never rebalanced after entry" | `src/build_portfolio.py` / `open_books.py` / `reconstitute.py` | ✅ |
@@ -260,3 +263,4 @@ defect most likely to turn into a rule violation six months later.
 | Version | Date | Change |
 |---|---|---|
 | v1.0 | 2026-07-18 | First version. Finalized and publicly anchored before inception; inception set to 2026-07-20. |
+| v1.0.1 | 2026-07-21 | Mechanism fix only, no rule or threshold change: dual-class dedup moved before the top-N cut; candidates file carries the full ranking; duplicate-seat guard added ([ERRATA.md](ERRATA.md)). |

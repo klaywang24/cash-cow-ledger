@@ -93,6 +93,8 @@ python tests/probe_metrics.py  # 派生信号 + 归一化验证
 - 每次数据更新后向 Internet Archive (Wayback Machine) 提交快照。
 - **提交类型严格分离**:`methodology:` = 规则变更,`data:` = 数据更新。
   任何第三方都可沿提交历史核验「某段时间内规则未被改动」。
+- **勘误公开**:缺陷在 [ERRATA.zh.md](ERRATA.zh.md) 带日期记录,台账行永不回改。
+  当前:开账日因双重股权缺陷入册 19 只(目标 20),2027 年 1 月调仓时按规则补齐。
 
 ---
 

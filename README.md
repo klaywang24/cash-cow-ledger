@@ -132,9 +132,10 @@ python tests/probe_metrics.py  # derived signals + normalization checks
 |---|---|
 | Inception | **2026-07-20** |
 | Base level | 100 |
-| Constituents | 20 |
+| Constituents | **19** — one seat short of target N = 20 due to a dual-class defect at inception, restored at the January 2027 review ([ERRATA.md](ERRATA.md)) |
 | Reconstitution | 1st trading day of January and July |
 | Files | [`data/ledger/`](data/ledger/) — `constituents.csv`, `index_level.csv` |
+| Errata | [`ERRATA.md`](ERRATA.md) — dated corrections; ledger rows are never rewritten |
 
 ---
 
