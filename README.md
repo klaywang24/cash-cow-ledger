@@ -114,6 +114,23 @@ python tests/probe_metrics.py  # derived signals + normalization checks
 
 ---
 
+## Automation & monitoring
+
+Nothing in the daily record depends on a human remembering to run anything:
+
+- **Daily level** — GitHub Actions ([`daily.yml`](.github/workflows/daily.yml)), 21:30 UTC
+  on weekdays, shortly after the US close: computes the level, appends it to the ledger,
+  commits as `data:`, and anchors a Wayback snapshot.
+- **Freshness monitor** — GitHub Actions ([`monitor.yml`](.github/workflows/monitor.yml)),
+  13:00 UTC daily: judges staleness from the **ledger data itself**, never from workflow
+  self-reports, and fails loudly if the ledger stops advancing.
+- There is no silent path: either the day's `data:` commit lands, or a workflow run turns
+  red and GitHub raises a failure notification. An additional off-repo review recomputes
+  each day's level against an independent price source; discrepancies are published to
+  [ERRATA.md](ERRATA.md), never patched into history.
+
+---
+
 ## Tamper-evidence
 
 - Public repository; commit times are attested by GitHub as a third party.
