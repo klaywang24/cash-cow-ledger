@@ -54,6 +54,11 @@ jobs:
       - name: compute index level
         run: python -m src.daily_level
 
+      # Stdlib-only and deterministic: an unchanged ledger produces a byte-identical SVG,
+      # so this step never creates a commit on its own.
+      - name: render README chart
+        run: python -m src.render_chart
+
       - name: commit data
         run: |
           # Commit as the repository owner: a bot identity would appear as a separate

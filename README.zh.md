@@ -5,6 +5,8 @@
 [![方法论](https://img.shields.io/badge/%E6%96%B9%E6%B3%95%E8%AE%BA-v1.0-6b4c9a)](METHODOLOGY.md)
 [![开账日](https://img.shields.io/badge/%E5%BC%80%E8%B4%A6%E6%97%A5-2026--07--20-a0392f)](data/ledger/)
 
+![指数点位曲线](output/index_chart.svg)
+
 一个**向前跟踪的观察指数(paper index)**:按公开、固定、可复现的规则,从美股中筛选
 "质量现金流"公司,每日计算指数点位,每半年调整一次成分。
 

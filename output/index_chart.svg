@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 360" font-family="ui-sans-serif,system-ui,sans-serif">
+<text x="56" y="22" font-size="15" font-weight="600" fill="#8b949e">Book One — index level</text>
+<text x="56" y="40" font-size="12" fill="#8b949e" opacity="0.8">base 100 at inception 2026-07-20 · score-weighted · never rebalanced after entry</text>
+<line x1="56" y1="326.0" x2="834" y2="326.0" stroke="#8b949e" stroke-opacity="0.18"/>
+<text x="48" y="330.0" font-size="11" fill="#8b949e" text-anchor="end">96.8</text>
+<line x1="56" y1="258.0" x2="834" y2="258.0" stroke="#8b949e" stroke-opacity="0.18"/>
+<text x="48" y="262.0" font-size="11" fill="#8b949e" text-anchor="end">97.7</text>
+<line x1="56" y1="190.0" x2="834" y2="190.0" stroke="#8b949e" stroke-opacity="0.18"/>
+<text x="48" y="194.0" font-size="11" fill="#8b949e" text-anchor="end">98.7</text>
+<line x1="56" y1="122.0" x2="834" y2="122.0" stroke="#8b949e" stroke-opacity="0.18"/>
+<text x="48" y="126.0" font-size="11" fill="#8b949e" text-anchor="end">99.6</text>
+<line x1="56" y1="54.0" x2="834" y2="54.0" stroke="#8b949e" stroke-opacity="0.18"/>
+<text x="48" y="58.0" font-size="11" fill="#8b949e" text-anchor="end">100.6</text>
+<line x1="56" y1="96.7" x2="834" y2="96.7" stroke="#8b949e" stroke-opacity="0.5" stroke-dasharray="4 4"/>
+<text x="834" y="90.7" font-size="11" fill="#8b949e" text-anchor="end" opacity="0.8">base 100</text>
+<text x="56.0" y="350" font-size="11" fill="#8b949e" text-anchor="middle">07-20</text>
+<text x="445.0" y="350" font-size="11" fill="#8b949e" text-anchor="middle">07-21</text>
+<text x="834.0" y="350" font-size="11" fill="#8b949e" text-anchor="middle">07-22</text>
+<polyline points="56.0,96.7 445.0,201.1 834.0,283.3" fill="none" stroke="#a0392f" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="834.0" cy="283.3" r="3.5" fill="#a0392f"/>
+<text x="826.0" y="273.3" font-size="12" font-weight="600" fill="#a0392f" text-anchor="end">97.38</text>
+</svg>
