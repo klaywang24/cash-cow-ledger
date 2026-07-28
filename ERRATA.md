@@ -4,6 +4,12 @@ Defects are recorded here with dates, in the open. Ledger rows are never rewritt
 when something is wrong, the mechanism changes and the record of the mistake stays
 (see METHODOLOGY §9, tamper-evidence). An errata history is an asset, not a liability.
 
+**Last reviewed 2026-07-28.** No defects have been found since the entry below. Every
+published level from 2026-07-21 through 2026-07-27 has been independently recomputed
+from an exchange price source, agreeing with the published figure to within 0.0001;
+`constituents.csv` remains byte-identical to the inception commit and `index_level.csv`
+is append-only. This line records that the log is current, not merely un-updated.
+
 ---
 
 ## 2026-07-21 · Inception opened with 19 constituents instead of 20
