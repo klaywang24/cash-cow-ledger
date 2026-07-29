@@ -13,8 +13,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "data/ledger/index_level.csv"
 OUT = ROOT / "output/index_chart.svg"
 
-W, H = 860, 360
-ML, MR, MT, MB = 56, 26, 54, 34
+W, H = 860, 372
+ML, MR, MT, MB = 56, 26, 72, 34
 INK, LINE = "#8b949e", "#a0392f"
 RECONSTITUTION_MONTHS = (1, 7)  # METHODOLOGY §7.1
 
@@ -28,6 +28,21 @@ def main():
     dates = [r["date"] for r in rows]
     levels = [float(r["level"]) for r in rows]
 
+    # Summary line: the numbers a reader would otherwise have to measure off the chart.
+    # Deliberately excludes the high and the low, which are already labelled on the plot.
+    peak, mdd = levels[0], 0.0
+    for v in levels:
+        peak = max(peak, v)
+        mdd = min(mdd, v / peak - 1)
+    held = rows[-1].get("n_constituents", "").strip()
+    summary = " · ".join(filter(None, [
+        f"{len(levels)} trading days",
+        f"{levels[-1] - 100:+.2f}% since inception",
+        f"max drawdown {mdd * 100:.2f}%".replace("-", "−"),
+        f"{held} holdings" if held else "",
+        f"as of {dates[-1]}",
+    ]))
+
     lo, hi = min(levels + [100.0]), max(levels + [100.0])
     pad = max((hi - lo) * 0.18, 0.6)
     lo, hi = lo - pad, hi + pad
@@ -40,7 +55,8 @@ def main():
          f'<text x="{ML}" y="22" font-size="15" font-weight="600" fill="{INK}">'
          f'Book One — index level</text>',
          f'<text x="{ML}" y="40" font-size="12" fill="{INK}" opacity="0.8">'
-         f'base 100 at inception {dates[0]} · score-weighted · never rebalanced after entry</text>']
+         f'base 100 at inception {dates[0]} · score-weighted · never rebalanced after entry</text>',
+         f'<text x="{ML}" y="58" font-size="11.5" fill="{INK}" opacity="0.62">{summary}</text>']
 
     for k in range(5):
         v = lo + (hi - lo) * k / 4
@@ -69,6 +85,18 @@ def main():
     for i in ticks:
         e.append(f'<text x="{x(i):.1f}" y="{H - 10}" font-size="11" fill="{INK}" '
                  f'text-anchor="middle">{dates[i][5:]}</text>')
+
+    # Fill between the curve and the base-100 line, clipped at the waterline: time spent above
+    # par reads in the accent colour, time below in neutral grey. lo/hi always bracket 100, so
+    # the waterline is guaranteed to sit inside the plot area.
+    band = " ".join(f"{x(i):.1f},{y(v):.1f}" for i, v in enumerate(levels))
+    area = f'{x(0):.1f},{y(100):.1f} {band} {x(len(levels) - 1):.1f},{y(100):.1f}'
+    e.append(f'<defs><clipPath id="above"><rect x="{ML}" y="{MT}" width="{W - ML - MR}" '
+             f'height="{y(100) - MT:.1f}"/></clipPath>'
+             f'<clipPath id="below"><rect x="{ML}" y="{y(100):.1f}" width="{W - ML - MR}" '
+             f'height="{H - MB - y(100):.1f}"/></clipPath></defs>')
+    e.append(f'<polygon points="{area}" fill="{LINE}" fill-opacity="0.14" clip-path="url(#above)"/>')
+    e.append(f'<polygon points="{area}" fill="{INK}" fill-opacity="0.14" clip-path="url(#below)"/>')
 
     # Reconstitution markers (METHODOLOGY §7.1: constituents reviewed in January and July).
     # Drawn where the series first enters a review month, so the reader can see where the
