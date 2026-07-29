@@ -12,7 +12,7 @@
 <line x1="56" y1="54.0" x2="834" y2="54.0" stroke="#8b949e" stroke-opacity="0.18"/>
 <text x="48" y="58.0" font-size="11" fill="#8b949e" text-anchor="end">105.5</text>
 <line x1="56" y1="186.4" x2="834" y2="186.4" stroke="#8b949e" stroke-opacity="0.5" stroke-dasharray="4 4"/>
-<text x="834" y="180.4" font-size="11" fill="#8b949e" text-anchor="end" opacity="0.8">base 100</text>
+<text x="60" y="180.4" font-size="11" fill="#8b949e" text-anchor="start" opacity="0.8">base 100</text>
 <text x="56.0" y="350" font-size="11" fill="#8b949e" text-anchor="middle">07-20</text>
 <text x="185.7" y="350" font-size="11" fill="#8b949e" text-anchor="middle">07-21</text>
 <text x="315.3" y="350" font-size="11" fill="#8b949e" text-anchor="middle">07-22</text>
@@ -21,6 +21,8 @@
 <text x="704.3" y="350" font-size="11" fill="#8b949e" text-anchor="middle">07-27</text>
 <text x="834.0" y="350" font-size="11" fill="#8b949e" text-anchor="middle">07-28</text>
 <polyline points="56.0,186.4 185.7,221.9 315.3,249.9 445.0,290.0 574.7,239.9 704.3,174.7 834.0,90.0" fill="none" stroke="#a0392f" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="445.0" cy="290.0" r="2.5" fill="#a0392f" fill-opacity="0.55"/>
+<text x="445.0" y="306.0" font-size="11" fill="#8b949e" text-anchor="middle">95.73</text>
 <circle cx="834.0" cy="90.0" r="3.5" fill="#a0392f"/>
 <text x="826.0" y="80.0" font-size="12" font-weight="600" fill="#a0392f" text-anchor="end">103.97</text>
 </svg>
