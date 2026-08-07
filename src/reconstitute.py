@@ -17,6 +17,7 @@ Rules:
 """
 from __future__ import annotations
 import sys, csv, glob, pathlib, datetime as dt
+from zoneinfo import ZoneInfo
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
 from src.screen import dedup_dual_class
@@ -101,7 +102,9 @@ def main():
     N = cfg["L5_count"]["target_holdings"]
     enter_rank, exit_rank = R["buffer_enter_rank"], R["buffer_exit_rank"]
     cap = R["entry_weight_cap"]
-    today = dt.date.today()
+    # US-Eastern, pinned: the runner's own zone is UTC and crosses midnight four hours
+    # early — see ERRATA 2026-08-06. The clock here only picks the review month.
+    today = dt.datetime.now(ZoneInfo("America/New_York")).date()
 
     if today.month not in R["review_months"]:
         print(f"Month {today.month} is not a review month ({R['review_months']}) — constituents unchanged.")

@@ -11,6 +11,7 @@ share is touched (METHODOLOGY §7.3, "never rebalanced after entry").
 """
 from __future__ import annotations
 import sys, csv, glob, pathlib, datetime as dt
+from zoneinfo import ZoneInfo
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
 
@@ -25,7 +26,7 @@ def main():
     inception = cfg["meta"].get("inception_date")
     if not inception:
         print("No inception date set — no action."); return
-    today = dt.date.today()
+    today = dt.datetime.now(ZoneInfo("America/New_York")).date()  # US-Eastern, pinned (ERRATA 2026-08-06)
     if today < dt.date.fromisoformat(str(inception)):
         print(f"Before inception ({inception}) — no action."); return
     if CONSTITUENTS.exists():

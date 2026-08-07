@@ -8,6 +8,7 @@ recommendation and makes no prediction.
 """
 from __future__ import annotations
 import sys, json, pathlib, csv, datetime as dt
+from zoneinfo import ZoneInfo
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
 from src.edgar import Edgar, extract_all
@@ -15,7 +16,7 @@ from src.screen import screen_us, apply_valuation, dedup_dual_class
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 cfg = yaml.safe_load(open(ROOT / "config.yaml"))
-TODAY = dt.date.today().isoformat()
+TODAY = dt.datetime.now(ZoneInfo("America/New_York")).date().isoformat()  # US-Eastern, pinned (ERRATA 2026-08-06)
 
 
 def load_universe():

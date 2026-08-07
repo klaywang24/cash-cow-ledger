@@ -14,13 +14,14 @@ recorded outside this repository.
 """
 from __future__ import annotations
 import sys, csv, pathlib, datetime as dt
+from zoneinfo import ZoneInfo
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
 from src.screen import dedup_dual_class
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 cfg = yaml.safe_load(open(ROOT / "config.yaml"))
-TODAY = dt.date.today().isoformat()
+TODAY = dt.datetime.now(ZoneInfo("America/New_York")).date().isoformat()  # US-Eastern, pinned (ERRATA 2026-08-06)
 
 
 def cap_and_redistribute(weights: dict, cap: float) -> dict:

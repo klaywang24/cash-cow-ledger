@@ -11,8 +11,11 @@ If inception_date is unset the script exits safely — nothing is recorded befor
 """
 from __future__ import annotations
 import sys, csv, pathlib, datetime as dt
+from zoneinfo import ZoneInfo
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
+
+ET = ZoneInfo("America/New_York")
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 cfg = yaml.safe_load(open(ROOT / "config.yaml"))
@@ -30,28 +33,57 @@ def load_active():
             if r.get("status", "active") == "active"]
 
 
+def bar_date(ts):
+    """The US trading date a daily bar belongs to, as America/New_York."""
+    ts = ts.to_pydatetime()
+    if ts.tzinfo is not None:
+        ts = ts.astimezone(ET)
+    return ts.date().isoformat()
+
+
 def fetch_closes(tickers):
-    """Fetch today's adjusted closes. If any is unavailable, return None and record nothing
-    for the day (never substitute a stale price)."""
+    """Fetch the latest adjusted closes AND the trading date they belong to.
+
+    The date is read off the bar, never off the clock. The runner is UTC, so any run
+    after 20:00 New York falls on the next UTC day; taking the date from the clock
+    mislabelled such a row (this happened on 2026-08-06, see ERRATA). The clock can
+    only ever veto a date here, never supply one.
+
+    If any close is unavailable, or the constituents do not all report the same last
+    bar, nothing is recorded — a missing day beats a stale, estimated or mislabelled one.
+    """
     import yfinance as yf
-    out = {}
+    out, dates = {}, {}
     data = yf.download(tickers, period="5d", auto_adjust=True,
                        progress=False, group_by="ticker")
     for t in tickers:
         try:
             s = data[t]["Close"].dropna() if len(tickers) > 1 else data["Close"].dropna()
             if len(s) == 0:
-                return None, f"{t}: no price"
+                return None, None, f"{t}: no price"
             out[t] = float(s.iloc[-1])
+            dates[t] = bar_date(s.index[-1])
         except Exception as e:
-            return None, f"{t}: price fetch failed: {e}"
-    return out, None
+            return None, None, f"{t}: price fetch failed: {e}"
+
+    if len(set(dates.values())) > 1:
+        spread = ", ".join(f"{t}={d}" for t, d in sorted(dates.items()))
+        return None, None, f"constituents disagree on the last trading day ({spread})"
+
+    date_str = next(iter(dates.values()))
+    et_today = dt.datetime.now(ET).date().isoformat()
+    if date_str > et_today:
+        return None, None, (f"last bar is dated {date_str}, which is still in the future "
+                            f"in New York ({et_today})")
+    return out, date_str, None
 
 
-def already_logged(date_str):
+def last_logged():
+    """The most recent date already in the ledger, or None."""
     if not LEVELS.exists():
-        return False
-    return any(r["date"] == date_str for r in csv.DictReader(open(LEVELS)))
+        return None
+    dates = [r["date"] for r in csv.DictReader(open(LEVELS))]
+    return max(dates) if dates else None
 
 
 def main():
@@ -64,14 +96,19 @@ def main():
         print("Ledger has no active constituents — exiting.")
         return
 
-    today = dt.date.today().isoformat()
-    if already_logged(today):
-        print(f"{today} already recorded, skipping.")
+    # Fetch first: the date comes out of the data, so there is nothing to compare
+    # against the ledger until the prices are in hand.
+    closes, date_str, err = fetch_closes([t for t, _ in active])
+    if closes is None:
+        print(f"WARNING: nothing recorded: {err} (better a missing day than a stale or estimated price)")
         return
 
-    closes, err = fetch_closes([t for t, _ in active])
-    if closes is None:
-        print(f"WARNING: nothing recorded today: {err} (better a missing day than a stale or estimated price)")
+    prev = last_logged()
+    if prev is not None and date_str <= prev:
+        # Equal = today is already in. Earlier = the ledger is append-only and ordered,
+        # so an out-of-order row is a bug somewhere upstream, not a backfill.
+        verb = "already recorded" if date_str == prev else f"older than the last row ({prev})"
+        print(f"{date_str} {verb}, skipping.")
         return
 
     level = sum(units * closes[t] for t, units in active)
@@ -82,8 +119,8 @@ def main():
         w = csv.writer(f)
         if new:
             w.writerow(["date", "level", "n_constituents"])
-        w.writerow([today, round(level, 4), len(active)])
-    print(f"{today} index level {level:.4f} ({len(active)} constituents)")
+        w.writerow([date_str, round(level, 4), len(active)])
+    print(f"{date_str} index level {level:.4f} ({len(active)} constituents)")
 
 
 if __name__ == "__main__":
