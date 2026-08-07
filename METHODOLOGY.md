@@ -213,6 +213,39 @@ Annual turnover above 25% **records an alert**. The alert is a record only and *
 - **When an official source later revises historical data, the existing ledger records stay as they are**;
   the revision is noted separately and never silently overwrites.
 
+### 9.1 Correction policy (v1.1; first applied 2026-08-06)
+
+The append-only rule above exists to make the record verifiable by outsiders. It is a means,
+not the end: a record known to be false and left standing does not protect verifiability, it
+destroys it. When the two conflict, this policy governs — the same way index providers and
+fund administrators run a published restatement procedure rather than either silently editing
+or knowingly publishing errors.
+
+**What may be corrected: identification errors only.** A row whose label (its date, ticker or
+placement) points at the wrong object, while the recorded value itself is independently
+verifiable as belonging to the corrected label. The test an outsider can apply: after the
+correction, the record must be *easier* to verify from primary sources, not harder.
+
+**What may never be corrected: judgments.** Levels, prices, weights, scores, constituent
+choices. A wrong value stands as recorded; the mechanism gets fixed and the error is
+documented in ERRATA. Precedent: the 2026-07-20 inception stands at 19 constituents forever
+(ERRATA, 2026-07-21).
+
+**Procedure — all four steps, in order:**
+
+1. **Independent recomputation.** The corrected fact is reproduced from primary sources with
+   a second implementation, not the code that made the error.
+2. **ERRATA first.** Root cause, evidence and blast radius are written down before the fix
+   is pushed, in the same commit series.
+3. **Ordinary commit only.** History is never rewritten and never force-pushed; the erroneous
+   commit and the correcting commit both stay permanently visible. Anyone can audit the full
+   sequence with `git log -p data/`.
+4. **The mechanism goes with it.** The defect that produced the error is fixed in the same
+   series, with a guard that fails loudly on recurrence.
+
+Corrections are numbered in ERRATA. A correction outside this procedure is treated as
+tampering, including by the author.
+
 ---
 
 ## 10. Explicitly not done
@@ -264,3 +297,4 @@ defect most likely to turn into a rule violation six months later.
 |---|---|---|
 | v1.0 | 2026-07-18 | First version. Finalized and publicly anchored before inception; inception set to 2026-07-20. |
 | v1.0.1 | 2026-07-21 | Mechanism fix only, no rule or threshold change: dual-class dedup moved before the top-N cut; candidates file carries the full ranking; duplicate-seat guard added ([ERRATA.md](ERRATA.md)). |
+| v1.1 | 2026-08-06 | Added §9.1 correction policy (identification errors correctable under procedure; judgments never). Date labels now come from the bars' own US-Eastern trading day — the clock only ever vetoes, never supplies; refuse-to-write gates and a trading-day-aware staleness monitor added. No screening rule or threshold changed. Origin: [ERRATA.md](ERRATA.md), 2026-08-06. |
