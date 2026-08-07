@@ -7,6 +7,11 @@ name: daily index
 on:
   schedule:
     - cron: "30 21 * * 1-5"   # 21:30 UTC, shortly after the US close (Mon-Fri)
+    # Backup trigger two hours later (23:30 UTC = 19:30 / 18:30 New York, same trading day).
+    # Scheduled events are best-effort: a nine-hour Actions incident swallowed the primary
+    # trigger on 2026-08-06. The pipeline is idempotent — if the primary already recorded
+    # the day, this run reads "already recorded, skipping" and commits nothing.
+    - cron: "30 23 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -43,7 +48,7 @@ jobs:
       - name: reconstitute (Jan / Jul only, self-gating)
         run: |
           if [ -f data/ledger/constituents.csv ]; then
-            MONTH=$(date -u +%m)
+            MONTH=$(TZ=America/New_York date +%m)
             if [ "$MONTH" = "01" ] || [ "$MONTH" = "07" ]; then
               python -m src.run_screen
               python -m src.build_portfolio
@@ -69,7 +74,10 @@ jobs:
           if git diff --staged --quiet; then
             echo "no change"; exit 0
           fi
-          git commit -m "data: daily index level $(date -u +%F)"
+          # The message reports the trading day that was actually appended, read back
+          # out of the ledger. $(date -u +%F) named the runner's UTC day instead, which
+          # drifts a day ahead of New York after 20:00 ET.
+          git commit -m "data: daily index level $(tail -1 data/ledger/index_level.csv | cut -d, -f1)"
           git push
 
       # Third-party timestamp anchor. Wayback is routinely flaky; no failure may affect the pipeline.

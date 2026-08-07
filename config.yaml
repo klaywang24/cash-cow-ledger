@@ -113,11 +113,14 @@ benchmarks:
 
 # ---- Pipeline monitoring (guards against silent death) ----
 monitoring:
-  # Alert if the ledger's latest row is older than this many days. Weekends and holidays
-  # included, hence the 4-day allowance.
+  # The monitor compares the ledger's last row against the most recent COMPLETED US trading
+  # day, read off SPY's own daily bars — weekends and holidays fall out automatically, and
+  # a missing trading day alerts the same night (staleness never exceeds one day). The old
+  # calendar-day threshold (max_stale_days: 4) was removed 2026-08-06: it would have stayed
+  # green for days across the Actions incident that swallowed that day's cron.
   # NOTE: the test is the FRESHNESS OF THE LEDGER DATA ITSELF, not any workflow's self-report —
   #       a workflow reporting "success" while producing nothing is the classic silent death.
-  max_stale_days: 4
+  freshness: "trading-day"
 
 # ---- Missing-data policy (hard constraint) ----
 data_policy:

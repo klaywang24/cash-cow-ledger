@@ -11,8 +11,15 @@ name: freshness monitor
 #       a monitor that raises false all-clears is more dangerous than no monitor at all.
 on:
   schedule:
-    - cron: "0 13 * * *"     # 13:00 UTC daily (~09:00 US Eastern, before the day's update, so
-                             # it checks the state as of the previous close)
+    # Primary: shortly after midnight New York (05:10 UTC = 00:10 EST / 01:10 EDT),
+    # Tue–Sat UTC so every Mon–Fri trading day is checked the night it closes.
+    # Staleness must never exceed one day: the checker compares the ledger's last row
+    # against the last COMPLETED US trading day read off SPY's own bars.
+    - cron: "10 5 * * 2-6"
+    # Backup sweep: scheduled events are best-effort and get dropped in platform
+    # incidents (both daily crons were swallowed on 2026-08-06) — the monitor itself
+    # must not hang on a single trigger. Read-only, so running twice costs nothing.
+    - cron: "0 13 * * *"
   workflow_dispatch:
 
 jobs:

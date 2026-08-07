@@ -121,11 +121,16 @@ python tests/probe_metrics.py  # derived signals + normalization checks
 Nothing in the daily record depends on a human remembering to run anything:
 
 - **Daily level** — GitHub Actions ([`daily.yml`](.github/workflows/daily.yml)), 21:30 UTC
-  on weekdays, shortly after the US close: computes the level, appends it to the ledger,
-  commits as `data:`, and anchors a Wayback snapshot.
+  on weekdays, shortly after the US close, with an idempotent backup trigger at 23:30 UTC
+  (scheduled events are best-effort; a dropped cron must not cost the day): computes the
+  level, appends it to the ledger, commits as `data:`, and anchors a Wayback snapshot.
+  The row's date comes from the price bars' own US-Eastern trading day, never from the
+  runner's clock (ERRATA, 2026-08-06).
 - **Freshness monitor** — GitHub Actions ([`monitor.yml`](.github/workflows/monitor.yml)),
-  13:00 UTC daily: judges staleness from the **ledger data itself**, never from workflow
-  self-reports, and fails loudly if the ledger stops advancing.
+  shortly after midnight New York plus a 13:00 UTC backup sweep: compares the ledger's
+  last row against the last **completed US trading day read off SPY's own bars** — never
+  a wall clock, never a workflow's self-report — and fails loudly the same night a
+  trading day goes missing or a future-dated row appears.
 - There is no silent path: either the day's `data:` commit lands, or a workflow run turns
   red and GitHub raises a failure notification. An additional off-repo review recomputes
   each day's level against an independent price source; discrepancies are published to

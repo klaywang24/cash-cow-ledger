@@ -94,9 +94,13 @@ python tests/probe_metrics.py  # 派生信号 + 归一化验证
 每日记录不依赖任何人记得去跑任何东西:
 
 - **每日点位**:GitHub Actions([`daily.yml`](.github/workflows/daily.yml)),工作日
-  21:30 UTC(美股收盘后):算点位、追加台账、以 `data:` 提交、锚定 Wayback 快照。
-- **新鲜度监控**:GitHub Actions([`monitor.yml`](.github/workflows/monitor.yml)),每天
-  13:00 UTC:陈旧与否**由台账数据本身判定**,绝不采信工作流的自我报告;台账停止前进即大声失败。
+  21:30 UTC(美股收盘后),另有 23:30 UTC 幂等备班(定时事件是尽力而为的,单次被吞不能
+  损失一天):算点位、追加台账、以 `data:` 提交、锚定 Wayback 快照。行的日期取自
+  K 线数据自带的美东交易日,绝不取 runner 时钟(见勘误 2026-08-06 条)。
+- **新鲜度监控**:GitHub Actions([`monitor.yml`](.github/workflows/monitor.yml)),美东
+  零点后即跑,另有 13:00 UTC 备班:拿台账末行与 **SPY 自己的 K 线判定的最近已完结
+  交易日**对表,不用挂钟、不采信工作流的自我报告;缺一个交易日当晚就大声失败,
+  出现未来日期的行同样报红。
 - 不存在静默路径:当天的 `data:` 提交要么落地,要么 workflow 变红并触发 GitHub 失败通知。
   此外每日另有仓库外复核,用独立价源逐只重算当日点位;发现出入进 [ERRATA.zh.md](ERRATA.zh.md)
   公开勘误,绝不回补历史。
@@ -109,7 +113,7 @@ python tests/probe_metrics.py  # 派生信号 + 归一化验证
 - 每次数据更新后向 Internet Archive (Wayback Machine) 提交快照。
 - **提交类型严格分离**:`methodology:` = 规则变更,`data:` = 数据更新。
   任何第三方都可沿提交历史核验「某段时间内规则未被改动」。
-- **勘误公开**:缺陷在 [ERRATA.zh.md](ERRATA.zh.md) 带日期记录,台账行永不回改。
+- **勘误公开**:缺陷在 [ERRATA.zh.md](ERRATA.zh.md) 带日期记录。数值与判断永不回改;指认性错误仅可按方法论 §9.1 的编号程序修正。
   当前:开账日因双重股权缺陷入册 19 只(目标 20),2027 年 1 月调仓时按规则补齐。
 
 ---
