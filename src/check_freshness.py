@@ -13,9 +13,19 @@ after midnight New York, it alerts the same night a trading day goes missing: st
 never allowed to exceed one day (2026-08-06: a nine-hour GitHub Actions incident swallowed
 the daily cron, and the old calendar-days threshold would have stayed green for days).
 
-Exit codes: 0 = fresh (or not yet at inception); 1 = ledger stale, a human is needed now;
-2 = could not measure. 2 is deliberately non-zero: a monitor that cannot see and stays
-quiet is indistinguishable from a green one.
+Exit codes carry ATTRIBUTION, not just severity (METHODOLOGY §11):
+
+  0 — fresh, or not yet at inception
+  1 — THE LEDGER is wrong: stale tail, a gap in the middle, or a future-dated row.
+      A human is needed now.
+  2 — THE SOURCE is unreadable, so freshness cannot be established either way. Deliberately
+      non-zero — a monitor that cannot see and stays quiet is indistinguishable from a green
+      one — but it says nothing against the ledger.
+
+Keeping 1 and 2 apart is the whole point. On 2026-08-18 this monitor twice reported a real
+problem and aimed it at the wrong party, telling its reader an honest row was fabricated
+when the truth was a vendor hole. A misattributed alert costs an hour and teaches the reader
+to ignore the next one, which is exactly how a monitor dies.
 """
 from __future__ import annotations
 import sys, csv, json, time, pathlib, urllib.request, datetime as dt
@@ -28,22 +38,61 @@ cfg = yaml.safe_load(open(ROOT / "config.yaml"))
 LEVELS = ROOT / "data/ledger/index_level.csv"
 ET = ZoneInfo("America/New_York")
 UA = {"User-Agent": "Mozilla/5.0 (cash-cow-ledger freshness monitor)"}
-SPY_URL = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=10d&interval=1d"
+# 3mo, not 10d: the window has to be wide enough to spot a MIDDLE gap in the ledger, not
+# just a stale tail, and wide enough for the reconstitution calendar to find the first
+# trading day of a review month. Same payload serves both — one definition of a session.
+SPY_URL = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=3mo&interval=1d"
 
 
-def last_completed_from(res, now_et):
-    """The pure half of the monitor: given a Yahoo chart payload and the current New York
-    time, return the most recent COMPLETED US trading day as an ISO date string, or None.
+def sessions_from(res):
+    """The exchange's trading calendar as the payload reports it: every date carrying a
+    timestamp, ascending, weekends vetoed.
 
-    A date counts as a real session when SPY actually traded that day — volume above zero
-    with an opening print. It deliberately does NOT test the close. On 2026-08-18 Yahoo
-    served the 08-17 bar with open/high/low/volume all present and `close: null` for hours
-    after the 16:00 close; that dropped an ordinary Monday out of the calendar and made the
-    monitor denounce the ledger's honest 08-17 row as future-dated. `close is None` was
-    carrying two meanings at once — "no session that day" and "the session happened but the
-    field is not populated yet" — and only the first was ever intended. Weekends and
-    holidays still fall out on their own: Yahoo emits no bar at all for them, so the
-    calendar is still read off the data rather than off a wall clock.
+    THE DISCRIMINATOR IS THE TIMESTAMP, NOT ANY FIELD'S CONTENTS. Yahoo emits no bar at all
+    for a weekend or a holiday — that is the one case where absence really does mean the
+    session never happened. A timestamp whose fields are null means something entirely
+    different: "a session existed on this date and I have nothing about it." Reading the
+    second as the first is what broke the monitor twice in one day (see calendar_from).
+
+    Weekday arithmetic is a property of the date itself, not a reading of the clock, so
+    vetoing Saturdays and Sundays keeps the clock's veto-only role intact: it can strike a
+    date out, it can never supply one.
+
+    This is the single definition of "the exchange had a session that day" in this repo.
+    The reconstitution calendar reads it to find the first trading day of a review month —
+    where a hole must NOT shift the review date, because the session did happen."""
+    out = []
+    for t in res["timestamp"]:
+        d = dt.datetime.fromtimestamp(t, ET).date()
+        if d.weekday() < 5:
+            out.append(d.isoformat())
+    return sorted(out)
+
+
+def calendar_from(res, now_et):
+    """Read the calendar in THREE states, not two. Returns (traded, holes): both ascending
+    ISO date lists, restricted to days already COMPLETED in New York.
+
+        traded — the session happened and the payload carries its data
+        holes  — the session happened and the payload carries NOTHING for it
+
+    A date with no timestamp at all appears in neither: weekend or holiday.
+
+    Why three. Twice on 2026-08-18 this monitor denounced an honest ledger row as
+    future-dated, because a single signal was carrying two meanings and the code silently
+    collapsed the one it could not name:
+
+      01:41 UTC — Yahoo served 08-17 with volume/open present and `close: null`. The test
+                  was `close is not None`, so an ordinary Monday fell out of the calendar.
+                  Fixed (fb… 9d696b3) by testing volume/open instead.
+      13:34 UTC — Yahoo served 08-17 with open, close AND volume all null. The new test
+                  excluded it too. The fix had moved the ambiguity from one field to
+                  another rather than killing the class.
+
+    Both times the missing state was the same: "a session happened and I cannot see it."
+    Collapsing that into "no session" makes the monitor accuse the ledger of fabricating a
+    row, when the truth is the vendor has a hole. Attribution matters as much as detection:
+    a wrongly-aimed alert costs an hour and teaches you to ignore the next one.
 
     A session counts as completed once its day is over in New York, or it is today's bar
     after the 16:00 close (16:05 for slack), so an evening manual run does not mistake
@@ -51,27 +100,77 @@ def last_completed_from(res, now_et):
     q = res["indicators"]["quote"][0]
     today = now_et.date().isoformat()
     after_close = (now_et.hour, now_et.minute) >= (16, 5)
-    days = sorted(
-        dt.datetime.fromtimestamp(t, ET).date().isoformat()
-        for i, t in enumerate(res["timestamp"])
-        if (q["volume"][i] or 0) > 0 and q["open"][i] is not None
-    )
-    done = [d for d in days if d < today or (d == today and after_close)]
-    return done[-1] if done else None
+    by_date = {}
+    for i, t in enumerate(res["timestamp"]):
+        d = dt.datetime.fromtimestamp(t, ET).date()
+        if d.weekday() >= 5:
+            continue
+        iso = d.isoformat()
+        if not (iso < today or (iso == today and after_close)):
+            continue                      # today, still trading — neither traded nor a hole
+        has_data = (q["volume"][i] or 0) > 0 and q["open"][i] is not None
+        by_date[iso] = by_date.get(iso, False) or has_data
+    traded = sorted(d for d, ok in by_date.items() if ok)
+    holes = sorted(d for d, ok in by_date.items() if not ok)
+    return traded, holes
 
 
-def last_completed_trading_day():
-    """Fetch SPY's daily bars and hand them to last_completed_from. Returns an ISO date
-    string, or None if the source is unreachable after three attempts."""
+def last_completed_from(res, now_et):
+    """Most recent COMPLETED trading day the payload actually carries data for, or None."""
+    traded, _ = calendar_from(res, now_et)
+    return traded[-1] if traded else None
+
+
+def fetch_payload():
+    """SPY's daily bars. None when the source is unreachable after three attempts — which is
+    'I cannot see', never 'nothing happened'."""
     for attempt in range(3):
         try:
             with urllib.request.urlopen(urllib.request.Request(SPY_URL, headers=UA), timeout=30) as r:
-                res = json.load(r)["chart"]["result"][0]
-            return last_completed_from(res, dt.datetime.now(ET))
+                return json.load(r)["chart"]["result"][0]
         except Exception as e:
             print(f"  (attempt {attempt + 1}: SPY fetch failed: {e})")
             time.sleep(15)
     return None
+
+
+def last_completed_trading_day():
+    res = fetch_payload()
+    return last_completed_from(res, dt.datetime.now(ET)) if res else None
+
+
+def verdict_from(traded, holes, have, last, inception):
+    """The whole judgement, pure and testable. Returns (exit_code, label, info).
+
+    The order of the tests is not cosmetic — each is placed where its conclusion still holds
+    despite whatever the source got wrong:
+
+      1. STALE   — a hole can only push `expected` EARLIER, never later, so `last < expected`
+                   survives any amount of source damage. Safe to conclude first.
+      2. GAP     — a completed day the source DOES carry, with no ledger row behind it. Only
+                   asked once the tail is known current, because a stale tail would report
+                   every recent day as missing and bury the real signal.
+      3. BLIND   — a hole after `expected` means the true last trading day may be later than
+                   measured, so nothing beyond `expected` can be judged at all. This must be
+                   asked BEFORE future-dating, or an honest row gets denounced (2026-08-18).
+      4. FUTURE  — only now, with the calendar trustworthy right up to `expected`, does a
+                   later row have no innocent explanation left.
+
+    Exactly one of these is a source fault and it is the only one that returns 2. Detection
+    and attribution are separate jobs: getting the first right and the second wrong still
+    costs an hour and still teaches the reader to ignore the next alert."""
+    expected = traded[-1]
+    if last < expected:
+        return 1, "STALE", {"expected": expected}
+    missing = [d for d in traded if d > str(inception) and d not in have]
+    if missing:
+        return 1, "GAP", {"missing": missing}
+    blinding = [h for h in holes if h > expected]
+    if blinding:
+        return 2, "BLIND_HOLE", {"blinding": blinding, "expected": expected}
+    if last > expected:
+        return 1, "FUTURE_DATED", {"expected": expected}
+    return 0, "FRESH", {"expected": expected, "holes": holes}
 
 
 def main():
@@ -79,12 +178,19 @@ def main():
     if not inception:
         print("No inception date set — nothing to monitor."); return 0
 
-    expected = last_completed_trading_day()
-    if expected is None:
-        print("ALERT: could not determine the last completed trading day (price source "
-              "unreachable after 3 attempts). The monitor is blind — this is a failure, "
-              "not an all-clear.")
+    res = fetch_payload()
+    if res is None:
+        print("BLIND (source): the price source was unreachable after 3 attempts, so the "
+              "trading calendar could not be read.\n   This is a failure, not an all-clear — "
+              "but the fault is the SOURCE, not the ledger. Nothing here says the ledger is wrong.")
         return 2
+
+    traded, holes = calendar_from(res, dt.datetime.now(ET))
+    if not traded:
+        print("BLIND (source): the payload carries no populated session at all.\n"
+              "   The monitor cannot see; it is not reporting that nothing happened.")
+        return 2
+    expected = traded[-1]
 
     if expected < str(inception):
         print(f"No completed trading day since inception ({inception}) yet — nothing to monitor.")
@@ -100,22 +206,38 @@ def main():
         print("ALERT: the ledger file exists but holds no records — the pipeline may be spinning idle.")
         return 1
 
+    have = {r["date"] for r in rows}
     last = rows[-1]["date"]
-    if last < expected:
-        print(f"ALERT: the last completed US trading day is {expected} but the ledger stops "
-              f"at {last} ({len(rows)} rows).\n   The pipeline may have died silently — a "
-              f"workflow can keep reporting success while producing no data.\n   Check the "
-              f"recent daily.yml runs immediately.")
-        return 1
-    if last > expected:
-        # A row dated later than any completed trading day can only be mislabelled or fabricated.
-        print(f"ALERT: the ledger's last row is dated {last}, but the last completed US trading "
-              f"day is {expected}. A future-dated row is an identification error (see "
-              f"METHODOLOGY §9.1 and ERRATA 2026-08-06).")
-        return 1
+    code, label, info = verdict_from(traded, holes, have, last, inception)
 
-    print(f"Ledger is fresh: last row {last} matches the last completed trading day ({len(rows)} rows).")
-    return 0
+    if label == "STALE":
+        print(f"STALE (ledger): the last completed US trading day is {info['expected']} but the "
+              f"ledger stops at {last} ({len(rows)} rows).\n   The pipeline may have died "
+              f"silently — a workflow can keep reporting success while producing no data.\n"
+              f"   Check the recent daily.yml runs immediately.")
+    elif label == "GAP":
+        print(f"GAP (ledger): {len(info['missing'])} completed trading day(s) inside the payload "
+              f"window have no ledger row: {', '.join(info['missing'])}.\n   The ledger's tail is "
+              f"current, so this was never going to show up in a last-row check. Each missing day "
+              f"needs a deliberate backfill decision — see METHODOLOGY §9.1; do not let a later "
+              f"run paper over it.")
+    elif label == "BLIND_HOLE":
+        print(f"BLIND (source): the price source has no data for {', '.join(info['blinding'])}, "
+              f"which is after the last day it does carry ({info['expected']}).\n   The exchange "
+              f"traded on those dates — the payload has their timestamps and null fields — so the "
+              f"calendar cannot be trusted past {info['expected']} and freshness is UNVERIFIABLE "
+              f"right now.\n   The ledger's last row is {last}. NOTHING HERE SAYS IT IS WRONG; "
+              f"the fault is the vendor's. Re-run once the source backfills.")
+    elif label == "FUTURE_DATED":
+        print(f"FUTURE-DATED (ledger): the last row is dated {last}, but the last completed US "
+              f"trading day is {info['expected']} and the source has no hole after it. This is an "
+              f"identification error (see METHODOLOGY §9.1 and ERRATA 2026-08-06).")
+    else:
+        note = (f"  (source holes at {', '.join(info['holes'])}, already in the ledger)"
+                if info["holes"] else "")
+        print(f"Ledger is fresh: last row {last} matches the last completed trading day "
+              f"({len(rows)} rows).{note}")
+    return code
 
 
 def selftest():
@@ -156,6 +278,13 @@ def selftest():
         ("+ 今天收盘后算完成：16:30 跑，今天那根算数",
          NORMAL + [bar("2026-08-17", 3e7, 776.0, 772.67), bar("2026-08-18", 3e7, 773.0, 775.0)],
          at("2026-08-18T16:30"), "2026-08-18"),
+        # These three stay as they are, and the reason is worth stating: they were never
+        # wrong. last_completed_from answers "the last day the payload CARRIES DATA for",
+        # and for a null bar that answer really is 08-14. The 2026-08-18 defect was that
+        # main() took this answer to a different question — "what was the last trading
+        # day?" — and then accused the ledger with it. The function name asserted more than
+        # the function knew. Hence the verdict cases below, which test what is DONE with
+        # this answer, not just the answer.
         ("- 负向：volume=0 的占位行不是交易日",
          NORMAL + [bar("2026-08-17", 0, 776.18, None)], at("2026-08-18T01:41"), "2026-08-14"),
         ("- 负向：volume=None 的占位行不是交易日",
@@ -175,9 +304,63 @@ def selftest():
             ok += 1
         print(f"  {mark} {name}\n       期望 {want} / 实得 {got}")
     neg = sum(1 for c in cases if c[0].startswith("-"))
-    print(f"\n{'✅' if ok == len(cases) else '❌'} selftest {ok}/{len(cases)} 过"
+    print(f"\n{'✅' if ok == len(cases) else '❌'} 日历判读 {ok}/{len(cases)} 过"
           f"（负向 {neg} 正向 {len(cases) - neg}·计数实算非硬编码）")
-    return 0 if ok == len(cases) else 1
+
+    # ---- Part two: three-state calendar, and what the VERDICT does with each state ----
+    print("\n三态日历（有交易且有数据 / 有交易但源无数据 / 根本没开市）:")
+    cal = [
+        ("+ 空 bar 是「洞」，不是「没开市」——08-17 必须落进 holes，不是消失",
+         NORMAL + [bar("2026-08-17", None, None, None)], at("2026-08-18T09:34"),
+         (["2026-08-13", "2026-08-14"], ["2026-08-17"])),
+        ("+ 周末根本没有 timestamp ⇒ 既不在 traded 也不在 holes",
+         NORMAL, at("2026-08-15T03:00"), (["2026-08-13", "2026-08-14"], [])),
+        ("- 负向：周六居然带了 timestamp（源发疯）⇒ 星期几否决，绝不算 session",
+         NORMAL + [bar("2026-08-15", 3e7, 776.0, 777.0)], at("2026-08-17T03:00"),
+         (["2026-08-13", "2026-08-14"], [])),
+        ("+ 今天盘中：既不算 traded 也不算 hole（还没结束，不是缺数据）",
+         NORMAL + [bar("2026-08-17", None, None, None), bar("2026-08-18", 3e6, 776.1, 769.0)],
+         at("2026-08-18T09:34"), (["2026-08-13", "2026-08-14"], ["2026-08-17"])),
+    ]
+    for name, bars, now_et, want in cal:
+        got = calendar_from(payload(bars), now_et)
+        got = (list(got[0]), list(got[1]))
+        mark = "✅" if got == want else "❌"
+        ok += got == want
+        print(f"  {mark} {name}\n       期望 {want}\n       实得 {got}")
+
+    print("\n裁决（检测对了还不够——归属必须对，否则等于诬告台账）:")
+    INC = "2026-07-20"
+    verdicts = [
+        ("🔴 2026-08-18 事故重演：源对 08-17 有洞，台账 08-17 诚实"
+         " ⇒ 必须 BLIND 退 2 指向源，绝不能 FUTURE_DATED 退 1 指控台账",
+         (["2026-08-14"], ["2026-08-17"]), {"2026-08-14", "2026-08-17"}, "2026-08-17",
+         (2, "BLIND_HOLE")),
+        ("+ 真·未来日期造假：源无洞，台账多出一行 ⇒ FUTURE_DATED 退 1（ERRATA 08-06 那道闸不许丢）",
+         (["2026-08-14"], []), {"2026-08-14", "2026-08-17"}, "2026-08-17", (1, "FUTURE_DATED")),
+        ("+ 真·陈旧：管线静默死亡 ⇒ STALE 退 1",
+         (["2026-08-14", "2026-08-17"], []), {"2026-08-14"}, "2026-08-14", (1, "STALE")),
+        ("+ 陈旧的判断不受洞影响：洞只会让 expected 更早，last<expected 照样成立",
+         (["2026-08-14"], ["2026-08-17"]), {"2026-08-13"}, "2026-08-13", (1, "STALE")),
+        ("🔴 中间缺一天：尾巴是新的，旧闸只看最后一行 ⇒ 必须 GAP 退 1",
+         (["2026-08-13", "2026-08-14", "2026-08-17"], []), {"2026-08-13", "2026-08-17"},
+         "2026-08-17", (1, "GAP")),
+        ("+ 洞在 expected 之前且台账已有该行 ⇒ 不是问题，FRESH 退 0",
+         (["2026-08-17"], ["2026-08-13"]), {"2026-08-13", "2026-08-17"}, "2026-08-17",
+         (0, "FRESH")),
+        ("+ 开账日之前的交易日不算缺口（台账那时还不存在）",
+         (["2026-07-15", "2026-08-17"], []), {"2026-08-17"}, "2026-08-17", (0, "FRESH")),
+    ]
+    for name, (traded, holes), have, last, want in verdicts:
+        code, label, _ = verdict_from(traded, holes, have, last, INC)
+        got = (code, label)
+        mark = "✅" if got == want else "❌"
+        ok += got == want
+        print(f"  {mark} {name}\n       期望 {want} / 实得 {got}")
+
+    total = len(cases) + len(cal) + len(verdicts)
+    print(f"\n{'✅' if ok == total else '❌'} selftest {ok}/{total} 过")
+    return 0 if ok == total else 1
 
 
 if __name__ == "__main__":
