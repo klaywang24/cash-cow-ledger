@@ -257,6 +257,75 @@ tampering, including by the author.
 
 ---
 
+## 11. How every test in this repository must be written (strict in, patient out)
+
+A **meta-rule**. It does not say which stocks to hold; it governs how every gate, monitor,
+check and data read in this repository is written. Anything added from here on is bound by it.
+
+### 11.1 Three states: every test must be able to say "I don't know"
+
+**Every test must distinguish three states, not two: yes / no / I cannot tell.**
+
+Collapsing "I cannot tell" into a definite answer is the single parent of every failure this
+repository has had:
+
+| Site | The three states | Collapsed to | Consequence |
+|---|---|---|---|
+| ERRATA 2026-08-06 | trading day is D / is not D / **the clock cannot know** | "is D" | a row published under the wrong date |
+| ERRATA 2026-08-18 | traded, data present / market shut / **traded, source has nothing** | "market shut" | the monitor accused an honest ledger of fabrication |
+| §7.1 review gate | review happened / did not / **happened but left no trace** | "did not happen" | every day of January re-running the reconstitution |
+| Appendix B table | implemented / not / **written but never verified** | "implemented" | the ✅ became decoration |
+
+The narrow form was already written in ERRATA 2026-08-06: **"the clock has veto power only,
+never supply power."** The general form: **any source that cannot know the answer must be
+allowed to say so, and that "I don't know" must never be silently rendered as an answer.**
+
+Corollary: **weekday arithmetic is a property of the date itself, not a reading of the
+clock**, so it may be used to veto without violating this rule.
+
+### 11.2 Strict in: detect unconditionally, and always attribute
+
+- **Nothing ambiguous passes silently.** Every ambiguity is detected and recorded.
+- **An alert must say who is broken.** The full form of the third state is not "I don't
+  know" but **"I don't know, and I know who left me unable to tell."**
+
+A misattributed alert is as harmful as a missed one: it costs an hour and teaches its reader
+to ignore the next one. On 2026-08-18 the monitor **detected correctly and attributed
+wrongly** — it accused the ledger of fabricating a row when a vendor had a hole. Exit codes
+therefore carry attribution: **1 = the ledger is wrong, 2 = the source cannot be read**, and
+the two are never merged.
+
+### 11.3 Patient out: response is graded by reversibility
+
+"Report first, decide after" cannot be applied uniformly, or it runs straight into alert
+fatigue and unattended runs. The grading criterion is one question: **can this step be undone?**
+
+| Grade | Criterion | Behaviour | Example |
+|---|---|---|---|
+| **Halt** | writes to the tamper-evident record | refuse, shout, wait for a human | filling a vacancy, writing to `index_level.csv` |
+| **Skip** | affects derived artefacts only | skip the step, continue, record it | charts, README |
+| **Shout** | fully reversible | report normally, block nothing | the monitor's own alerts |
+
+**Boundary: "patient out" governs forward actions only; it never excuses a published error.**
+An identified identification error is corrected immediately under §9.1.
+
+### 11.4 Acceptance: a gate never seen to go red does not exist
+
+- Every new row in Appendix B must come with a test **that has been shown to fail**. Where
+  that cannot be shown, the row is recorded ⛔, never ✅.
+- A test must exercise the gate itself, never a restatement of it.
+- The standing meta-criterion: **"if this thing were healthy, would my script report exactly
+  the same?"** Gates here therefore carry **mutation tests**: revert the gate to a known
+  broken behaviour and the test must turn red.
+- **A test pins what a function COMPUTES; it must also pin what is DONE with that answer.**
+  On 2026-08-18 the selftest was green while production was red, because it exercised
+  `last_completed_from` — the last day the source *carries data for*, whose answer was
+  correct — while the defect was `main()` using that answer to settle a different question,
+  the last day the exchange *traded*. **The function's name asserted more than the function
+  knew.** So test the value, and the verdict drawn from it.
+
+---
+
 ## Appendix A: Human discretion is not part of this methodology
 
 This index contains **no discretionary component**. The author's personal discretionary holdings, if any,
@@ -281,13 +350,49 @@ defect most likely to turn into a rule violation six months later.
 | §5 L4 valuation | `src/screen.py::apply_valuation` | ✅ |
 | §6 L5 count and composite score | `src/run_screen.py::score_pool` / `build_portfolio` | ✅ |
 | §6 Dual-class dedup, before the top-N cut | `src/screen.py::dedup_dual_class` + guard in `build_portfolio` | ✅ |
-| §7.1 Review dates (January / July) | `src/reconstitute.py` + `daily.yml` | ✅ |
+| §7.1 Review dates (**first trading day** of January / July) | `src/reconstitute.py::review_due` + register `data/ledger/review_log.csv` | ✅ (corrected 2026-08-18, below) |
 | §7.2 Rank buffer + two-sided momentum veto | `src/reconstitute.py` | ✅ |
 | §7.3 Weighting and "never rebalanced after entry" | `src/build_portfolio.py` / `open_books.py` / `reconstitute.py` | ✅ |
+| §7.3 **Funding an entry into a vacancy with no removal** | — | ⛔ **no such clause**; see open question |
 | §7.4 Turnover budget alert | `src/reconstitute.py` | ✅ |
 | §8 Index level (units mechanism) | `src/daily_level.py` | ✅ |
 | §9 Tamper-evidence (public repo / Wayback / commit typing) | `.github/workflows/daily.yml` | ✅ |
 | — Ledger freshness monitor | `src/check_freshness.py` + `monitor.yml` | ✅ |
+| — **Somebody actually runs the invariant tests** | `tests/` + `daily.yml::regression invariants` | ✅ (wired 2026-08-18) |
+| §11.1 Three-state calendar (traded+data / shut / source hole) | `check_freshness::calendar_from` | ✅ (4 samples + mutation) |
+| §11.2 Exit codes carry attribution (1 = ledger, 2 = source) | `check_freshness::verdict_from` | ✅ (7 verdict samples + mutation) |
+| §11.3 Filling a vacancy is graded "halt" | vacancy alert in `reconstitute.py` | ✅ |
+| §11.4 Every row here needs a test shown to go red | this table + `--selftest` / `tests/` | ✅ |
+| — **Gap detection inside the ledger** (the old gate read only the last row) | `check_freshness::verdict_from` GAP | ✅ (added 2026-08-18) |
+
+**This table lies too.** The §7.1 row above read ✅ until 2026-08-18 while the code implemented
+"any day in January or July", not the "first trading day" the document specifies — and its
+once-per-period guard inferred "already ran" from whether any constituent carried a current-month
+`entry_date`, so **a review that removed nothing and added nothing left no trace, the guard stayed
+open, and every remaining day of the month re-ran the reconstitution.** The tick had been written
+without a negative sample behind it, which makes a tick decoration. Every row added from here on
+must come with a **test that has been shown to go red**, or it is recorded ⛔ rather than ✅.
+
+Found the same day: `tests/test_dedup.py` has been cited in ERRATA as the regression guard for the
+inception dedup defect since `fb940ea`, yet **no scheduler in this repository has ever run it**.
+A guard nobody runs does not exist. It is now wired into `daily.yml`, ahead of anything that
+touches the ledger.
+
+### Open question (human ruling required — the code must not settle this on its own)
+
+**Where the funding for a vacancy comes from.** ERRATA 2026-07-21 promises that the 20th seat burned
+by FOXA at inception "is held open until the January 2027 review, where the standard §7 entry rules
+restore the count to N = 20". But §7.3 funds an entrant only out of the market value a **removal**
+releases. When a vacancy exists and nothing is removed that period (`freed == 0`), the clause is
+silent, so the code fills nothing. A dry rehearsal of the January 2027 review on live prices
+(2026-08-18) hit exactly that state: all 19 retained, DLTR clearing both the rank and momentum
+gates, **unable to enter for want of funding**.
+
+Until this is ruled on, the code **shouts and refuses to improvise**: a paper index holds no cash, so
+any funding scheme necessarily dilutes the incumbents, and "never rebalanced after entry, winners are
+never trimmed" is an explicit §7.3 promise. **This is a promise/mechanism conflict, and the standing
+principle is to change the mechanism rather than the promise** — but which mechanism is a human's
+choice, and must be recorded as a versioned rule change.
 
 ---
 
