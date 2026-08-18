@@ -94,14 +94,20 @@ def test_first_trading_day_reads_the_exchange_calendar_not_the_clock():
     assert rc.first_trading_day(JAN_2027, 2027, 2) is None     # month absent -> blind, not "day 1"
 
 
-def test_an_unfundable_vacancy_is_shouted_not_swallowed():
-    """POLICY GAP, deliberately left failing-loud rather than silently fixed.
+def test_a_vacancy_is_filled_rather_than_left_silent():
+    """ERRATA 2026-07-21 promises the seat FOXA burned at inception is refilled to N=20 at the
+    January 2027 review. Entry used to be funded only by value a removal frees (§7.3), so with
+    every incumbent retained — freed == 0 — a qualified entrant could not be funded and the
+    seat stayed empty with nothing said.
 
-    ERRATA 2026-07-21 promises the seat FOXA burned at inception is refilled to N=20 at the
-    January 2027 review. But entry is funded only by value a removal frees (§7.3). Give the
-    reconstitution a review where every incumbent is retained — freed == 0 — and a qualified
-    entrant waiting: the entrant cannot be funded. That is a mandate question, not a bug to
-    paper over, so the requirement asserted here is that the run SAYS SO."""
+    Until the §7.3 vacancy clause landed (2026-08-18) this test asserted the opposite: that the
+    run at least SHOUTED about the gap. That was the right assertion while the gap was open and
+    the wrong one afterwards, and it is recorded here rather than quietly rewritten — a test
+    that pins today's behaviour is only as good as the day it was written.
+
+    The mechanics of the fill (weights, divisor, level continuity, incumbent units) belong to
+    tests/test_vacancy_divisor.py. What is pinned HERE is the review gate's end of the deal:
+    the entrant appears, and a dry run still writes nothing."""
     actives = [r for r in csv.DictReader(open(ROOT / "data/ledger/constituents.csv"))
                if r["status"] == "active"]
     held = [r["ticker"] for r in actives]
@@ -123,9 +129,10 @@ def test_an_unfundable_vacancy_is_shouted_not_swallowed():
     finally:
         rc.latest_ranking = real_ranking
 
-    assert "retained 19" in out and "entered 0" in out, out
-    assert "1 seat(s) unfilled" in out, out
-    assert "GRMN" in out and "POLICY GAP" in out, out
+    assert "retained 19" in out and "entered 1" in out, out
+    assert "ADD_VACANCY" in out and "GRMN" in out, out
+    assert "Divisor 1.0000000000 ->" in out, out
+    assert "seat(s) unfilled" not in out, out
     assert "[dry-run]" in out, out          # and it wrote nothing
 
 

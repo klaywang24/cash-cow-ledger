@@ -17,7 +17,7 @@ The three properties that matter, and what breaks if each is lost:
 
 No network. Run: python -m tests.test_vacancy_divisor
 """
-import csv, io, pathlib, shutil, sys, tempfile, datetime as dt
+import csv, io, pathlib, sys, tempfile, datetime as dt
 from contextlib import redirect_stdout
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -132,8 +132,6 @@ def test_a_full_book_moves_nothing():
 
     assert len([r for r in rows if r["status"] == "active"]) == 20, out
     assert div == 1.0, div
-    assert {r["ticker"]: r["units"] for r in rows} == \
-           {r["ticker"]: str(r["units"]) for r in incumbents} or True   # units unchanged below
     was = {r["ticker"]: float(r["units"]) for r in incumbents}
     now = {r["ticker"]: float(r["units"]) for r in rows}
     assert was == now, [k for k in was if was[k] != now[k]]
