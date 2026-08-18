@@ -30,6 +30,18 @@ jobs:
       - name: install deps
         run: pip install --quiet requests pyyaml pandas yfinance
 
+      # Invariants run BEFORE anything touches the ledger: a broken invariant must stop the
+      # day, not be discovered after the day's row is already committed. Both suites are
+      # offline and pinned to data committed in the repo, so they cost seconds and can never
+      # fail for a reason outside this repository.
+      # (Until 2026-08-18 nothing in this repo ran either of them. tests/test_dedup.py had
+      #  been the stated regression guard for the inception dedup defect since fb940ea while
+      #  no scheduler ever executed it — a guard nobody runs is a guard that does not exist.)
+      - name: regression invariants
+        run: |
+          python -m tests.test_dedup
+          python -m tests.test_review_gate
+
       # Inception (and the January/July reviews) must run the screen and portfolio build first.
       # open_books is idempotent: it exits immediately if already open or before inception.
       - name: screen + build (only needed at inception / reconstitution)

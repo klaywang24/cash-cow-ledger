@@ -27,6 +27,12 @@ cfg = yaml.safe_load(open(ROOT / "config.yaml"))
 LEDGER = ROOT / "data/ledger"
 CONSTITUENTS = LEDGER / "constituents.csv"
 DECISIONS = ROOT / "data/decisions_log.csv"
+REVIEW_LOG = ROOT / "data/ledger/review_log.csv"
+REVIEW_FIELDS = ["period", "review_date", "executed_at",
+                 "retained", "removed", "entered", "turnover", "note"]
+ET = ZoneInfo("America/New_York")
+
+DRY_RUN = False   # set by main(); when true nothing on disk is touched
 
 FIELDS = ["ticker", "entity", "entry_date", "entry_price", "entry_weight",
           "units", "status", "exit_date", "deferred_since"]
@@ -92,28 +98,131 @@ def cap_and_redistribute(weights: dict, cap: float) -> dict:
 
 
 def log_decision(date, ticker, action, rank, price, reason):
+    if DRY_RUN:
+        print(f"  [dry-run] {action:14s} {ticker:6s} rank={rank} px={price}  {reason}")
+        return
     with open(DECISIONS, "a", newline="") as f:
         csv.writer(f).writerow([date, ticker, action, rank, price, reason])
 
 
+def load_review_log():
+    if not REVIEW_LOG.exists():
+        return []
+    return list(csv.DictReader(open(REVIEW_LOG)))
+
+
+def record_review(period, review_date, executed_at, retained, removed, entered, turnover, note=""):
+    """A review that changed nothing is still a review, and gets recorded as one.
+
+    The previous guard inferred "this period already ran" from a side effect: whether any
+    active constituent carried an entry_date in the current month. A review that added
+    nothing — because nothing was removed to fund an entry, or because the ranking was
+    unchanged — leaves no such trace, so the guard stayed open and every remaining day of
+    the review month became eligible. METHODOLOGY §7.1 says the FIRST TRADING DAY; the code
+    said any day in January. Recording the EVENT instead of inferring it from its OUTCOME
+    is what closes that hole, and the register doubles as the audit trail of every review
+    ever held."""
+    if DRY_RUN:
+        print(f"  [dry-run] would record review {period} ({review_date}): "
+              f"retained {retained} · removed {removed} · entered {entered}")
+        return
+    fresh = not REVIEW_LOG.exists()
+    with open(REVIEW_LOG, "a", newline="") as f:
+        w = csv.writer(f)
+        if fresh:
+            w.writerow(REVIEW_FIELDS)
+        w.writerow([period, review_date, executed_at, retained, removed, entered,
+                    f"{turnover:.6f}", note])
+
+
+def fetch_sessions():
+    """The exchange's own trading calendar, read off SPY's daily bars — never off a wall
+    clock, which cannot know about holidays (ERRATA 2026-08-06).
+
+    One fetch and one definition of "a session happened", shared with the freshness monitor,
+    so the two can never drift into disagreeing about what a trading day is. Note this wants
+    sessions_from, NOT the monitor's populated-day list: if the source has a hole on the
+    first trading day of a review month, the session still happened and the review date must
+    not slide to the next day the vendor managed to populate."""
+    from src.check_freshness import fetch_payload, sessions_from
+    res = fetch_payload()
+    return sessions_from(res) if res else None
+
+
+def first_trading_day(sessions, year, month):
+    """First real session of that month. None when the payload does not reach back into the
+    month at all — a calendar that cannot see must never be read as 'today is not it'."""
+    prefix = f"{year:04d}-{month:02d}-"
+    days = [d for d in sessions if d.startswith(prefix)]
+    return days[0] if days else None
+
+
+def review_due(today, sessions, register, review_months):
+    """Pure gate for METHODOLOGY §7.1. Returns (verdict, period, review_date).
+
+    verdict ∈ {DUE, NOT_REVIEW_MONTH, ALREADY_DONE, TOO_EARLY, MISSED, BLIND}.
+    MISSED and BLIND are failures to be shouted, never skipped: a review that silently did
+    not happen is indistinguishable from one that happened and changed nothing, and that
+    ambiguity is exactly what the register exists to destroy."""
+    period = f"{today.year:04d}-{today.month:02d}"
+    if today.month not in review_months:
+        return ("NOT_REVIEW_MONTH", period, None)
+    if sessions is None:
+        return ("BLIND", period, None)
+    ftd = first_trading_day(sessions, today.year, today.month)
+    if ftd is None:
+        return ("BLIND", period, None)
+    if any(r["period"] == period for r in register):
+        return ("ALREADY_DONE", period, ftd)
+    iso = today.isoformat()
+    if iso < ftd:
+        return ("TOO_EARLY", period, ftd)
+    if iso > ftd:
+        return ("MISSED", period, ftd)
+    return ("DUE", period, ftd)
+
+
 # ---------- main ----------
-def main():
+def main(today=None, sessions=None, px=None, dry_run=False):
+    global DRY_RUN
+    DRY_RUN = dry_run
     R = cfg["rules"]
     N = cfg["L5_count"]["target_holdings"]
     enter_rank, exit_rank = R["buffer_enter_rank"], R["buffer_exit_rank"]
     cap = R["entry_weight_cap"]
     # US-Eastern, pinned: the runner's own zone is UTC and crosses midnight four hours
-    # early — see ERRATA 2026-08-06. The clock here only picks the review month.
-    today = dt.datetime.now(ZoneInfo("America/New_York")).date()
+    # early — see ERRATA 2026-08-06. The clock only ever has veto power here; which day is
+    # the review day is read off the exchange calendar, not off the clock.
+    if today is None:
+        today = dt.datetime.now(ET).date()
 
-    if today.month not in R["review_months"]:
-        print(f"Month {today.month} is not a review month ({R['review_months']}) — constituents unchanged.")
-        return
     cur = load_constituents()
     if not cur:
-        print("Ledger not yet open — reconstitution does not apply."); return
-    if any(r["entry_date"][:7] == today.isoformat()[:7] for r in cur if r["status"] == "active"):
-        print("Already reconstituted this month — this is a once-per-review action, skipping."); return
+        print("Ledger not yet open — reconstitution does not apply."); return 0
+
+    # §7.1 gate. Cheap month test first so ordinary days never touch the network.
+    if today.month not in R["review_months"]:
+        print(f"Month {today.month} is not a review month ({R['review_months']}) — constituents unchanged.")
+        return 0
+    if sessions is None:
+        sessions = fetch_sessions()
+    verdict, period, ftd = review_due(today, sessions, load_review_log(), R["review_months"])
+
+    if verdict == "ALREADY_DONE":
+        print(f"Review {period} already held on {ftd} (see {REVIEW_LOG.name}) — "
+              f"a review is a once-per-period event, skipping."); return 0
+    if verdict == "TOO_EARLY":
+        print(f"Review {period} falls on {ftd}; today is {today} — not yet."); return 0
+    if verdict == "BLIND":
+        print("ERROR: could not read the exchange calendar, so the review date is unknown. "
+              "Aborting — a blind gate must never be read as 'not today'."); return 2
+    if verdict == "MISSED":
+        print(f"ERROR: review {period} was due on {ftd} and never ran (nothing recorded in "
+              f"{REVIEW_LOG.name}); today is already {today}.\n"
+              f"   §7.1 pins the review to the first trading day, so this run must NOT quietly "
+              f"reconstitute on a later day's ranking.\n"
+              f"   A human decision is required — see the missed-review policy gap flagged "
+              f"alongside this gate."); return 1
 
     ranking = latest_ranking()
     if not ranking:
@@ -124,7 +233,8 @@ def main():
 
     active = [r for r in cur if r["status"] == "active"]
     universe = sorted(set([r["ticker"] for r in active] + list(rank_of)))
-    px = fetch_history(universe)
+    if px is None:
+        px = fetch_history(universe)
 
     missing = [t for t in [r["ticker"] for r in active] if px.get(t, (None,))[0] is None]
     if missing:
@@ -214,19 +324,43 @@ def main():
     # (An earlier version wrote removed_before + exits + retain + new_rows, which duplicated
     # this period's removals.)
     out = cur + new_rows
-    with open(CONSTITUENTS, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
-        w.writeheader()
-        for r in out:
-            w.writerow({k: r.get(k, "") for k in FIELDS})
+    if not DRY_RUN:
+        with open(CONSTITUENTS, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
+            w.writeheader()
+            for r in out:
+                w.writerow({k: r.get(k, "") for k in FIELDS})
 
     turnover = freed / total_value if total_value else 0
+
+    # An unfilled seat must never pass quietly. ERRATA 2026-07-21 promises the seat FOXA
+    # burned at inception is refilled to N at the January 2027 review; §7.3 only says how an
+    # entrant is funded BY A REMOVAL, and is silent when a vacancy exists with nothing
+    # removed. Until a human closes that policy gap, this shouts rather than shrugs.
+    seats_short = N - (len(retain) + len(new_rows))
+    unfunded = [t for t in entrants if t not in {r["ticker"] for r in new_rows}]
+    note = ""
+    if seats_short > 0:
+        note = f"{seats_short} seat(s) short of N={N}"
+        print(f"WARNING: holding {len(retain) + len(new_rows)} names against N={N} — "
+              f"{seats_short} seat(s) unfilled.")
+        if unfunded:
+            note += f"; qualified but unfunded: {','.join(unfunded)}"
+            print(f"   {', '.join(unfunded)} qualified on rank and momentum, but no removal "
+                  f"freed any value to fund the entry (freed={freed:.4f}).\n"
+                  f"   METHODOLOGY §7.3 says only how an entrant is funded BY A REMOVAL. This "
+                  f"is a POLICY GAP, not a price or data problem — a human must close it.")
+
+    record_review(period, ftd, dt.datetime.now(ET).isoformat(timespec="seconds"),
+                  len(retain), len(exits), len(new_rows), turnover, note)
+
     print(f"Reconstitution complete {today}: retained {len(retain)} · removed {len(exits)} · "
           f"entered {len(new_rows)} · one-way turnover {turnover*100:.1f}%")
     if turnover > R["turnover_budget_annual"]:
         print(f"WARNING: turnover {turnover*100:.1f}% exceeds the annual budget of "
               f"{R['turnover_budget_annual']*100:.0f}% — recorded as an alert only; no rule is adjusted.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(dry_run="--dry-run" in sys.argv) or 0)
