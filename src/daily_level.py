@@ -111,7 +111,13 @@ def main():
         print(f"{date_str} {verb}, skipping.")
         return
 
-    level = sum(units * closes[t] for t, units in active)
+    # §8: level = sum(units x price) / divisor. The divisor is 1.0 from inception and only
+    # moves when a constituent is added with no removal to fund it, so this reproduces every
+    # previously published level unchanged. It is looked up by the BAR's trading date, never
+    # by the clock — same rule as the date label itself (ERRATA 2026-08-06).
+    from src.divisor import divisor_on
+    div = divisor_on(date_str)
+    level = sum(units * closes[t] for t, units in active) / div
 
     LEDGER.mkdir(parents=True, exist_ok=True)
     new = not LEVELS.exists()

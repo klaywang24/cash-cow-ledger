@@ -41,6 +41,7 @@ jobs:
         run: |
           python -m tests.test_dedup
           python -m tests.test_review_gate
+          python -m tests.test_vacancy_divisor
 
       # Inception (and the January/July reviews) must run the screen and portfolio build first.
       # open_books is idempotent: it exits immediately if already open or before inception.

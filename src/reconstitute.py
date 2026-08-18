@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
 from src.screen import dedup_dual_class
+from src.divisor import divisor_on, record as record_divisor
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 cfg = yaml.safe_load(open(ROOT / "config.yaml"))
@@ -305,6 +306,67 @@ def main(today=None, sessions=None, px=None, dry_run=False):
     else:
         leftover = freed
 
+    # ---- 4b. §7.3 vacancy clause: a seat with no removal behind it, funded by the divisor.
+    #
+    # §7.3 funds an entrant out of the value a REMOVAL releases. A seat can also fall vacant
+    # with nothing removed — the one FOXA burned at inception is exactly that, and ERRATA
+    # 2026-07-21 promises it is refilled to N at the January 2027 review. Without this clause
+    # the promise cannot be kept: freed == 0 means the branch above never runs, and the seat
+    # stays empty forever, silently.
+    #
+    # The entrant takes the weight the ENTRY RULE ALREADY GIVES IT — its score share of the
+    # post-entry constituents, capped at entry_weight_cap. No new parameter is introduced:
+    # the seat is empty because of a defect, and a defect must not get to edit the mandate.
+    #
+    # The value is created by moving the divisor, not by trimming anybody. Pro-rata dilution
+    # of incumbent units yields identical weights with less machinery, and is rejected for
+    # one reason: it trims incumbent units, and "a reconstitution never trims an incumbent's
+    # units" is an invariant this repository enforces and audits. See src/divisor.py.
+    divisor_before = divisor_on(today.isoformat())
+    divisor_after = divisor_before
+    if entrants and freed <= 0:
+        incumbent_value = sum(float(r["units"]) * px[r["ticker"]][0] for r in retain)
+        post = [r["ticker"] for r in retain] + entrants
+        denom = sum(score_of[t] for t in post if t in score_of)
+        if denom <= 0:
+            print("ERROR: nothing scored to weight a vacancy entry against — aborting "
+                  "(no guessing, no relaxing)."); sys.exit(1)
+        w = {t: min(score_of[t] / denom, cap) for t in entrants}
+        W = sum(w.values())
+        if not (0 < W < 1):
+            print(f"ERROR: vacancy entry weights sum to {W:.4f}, outside (0,1) — aborting.")
+            sys.exit(1)
+        needed = W / (1 - W) * incumbent_value     # so entrants hold exactly W afterwards
+        for t in entrants:
+            price = px[t][0]
+            alloc = (w[t] / W) * needed
+            new_rows.append({
+                "ticker": t, "entity": entity_of[t], "entry_date": today.isoformat(),
+                "entry_price": round(price, 6), "entry_weight": round(w[t], 6),
+                "units": round(alloc / price, 8), "status": "active",
+                "exit_date": "", "deferred_since": ""})
+            log_decision(today, t, "ADD_VACANCY", rank_of[t], round(price, 4),
+                         f"rank {rank_of[t]} <= {enter_rank} and above the 200d MA; no removal "
+                         f"funded it, so the §7.3 vacancy clause applies: score-allocated "
+                         f"{w[t]*100:.2f}%, absorbed by the divisor, no incumbent units touched")
+        # Level continuity: the basket grew, and that is not a return. Scale the divisor by
+        # exactly the factor the basket grew by, so the published level does not jump on the
+        # review date. Incumbent units are untouched; incumbent PERCENTAGE weights fall by
+        # (1 - W), which is unavoidable and was never what §7.3 promised.
+        #
+        # Derived from the units ACTUALLY WRITTEN, not from `needed`: units are stored to 8
+        # decimals, and a divisor computed from the pre-rounding ideal leaves the level off by
+        # the rounding error (~1e-7 in testing). Small, but continuity is the one property
+        # this mechanism exists to provide, so it is made exact rather than nearly exact.
+        added = sum(r["units"] * px[r["ticker"]][0] for r in new_rows)
+        divisor_after = divisor_before * (incumbent_value + added) / incumbent_value
+        if not DRY_RUN:
+            record_divisor(today.isoformat(), divisor_after,
+                           f"§7.3 vacancy clause: {'/'.join(entrants)} entered at "
+                           f"{W*100:.2f}% with no removal to fund it")
+        print(f"Divisor {divisor_before:.10f} -> {divisor_after:.10f} "
+              f"(entrants take {W*100:.2f}% of the post-entry book; incumbent units untouched)")
+
     # Remainder distributed pro rata to incumbents (relative weights preserved -> winners not trimmed)
     if leftover > 1e-9 and retain:
         held_val = sum(float(r["units"]) * px[r["ticker"]][0] for r in retain)
@@ -338,18 +400,20 @@ def main(today=None, sessions=None, px=None, dry_run=False):
     # entrant is funded BY A REMOVAL, and is silent when a vacancy exists with nothing
     # removed. Until a human closes that policy gap, this shouts rather than shrugs.
     seats_short = N - (len(retain) + len(new_rows))
-    unfunded = [t for t in entrants if t not in {r["ticker"] for r in new_rows}]
-    note = ""
+    note = "" if divisor_after == divisor_before else \
+        f"divisor {divisor_before:.10f}->{divisor_after:.10f}"
     if seats_short > 0:
-        note = f"{seats_short} seat(s) short of N={N}"
+        # Funding is no longer a reason for this (see 4b), so whatever is left is the
+        # momentum veto or an exhausted candidate pool — both rule-driven and both fine.
+        # It is still said out loud: a book quietly running under N is how "N = 20" decays
+        # into whatever happened to fit.
+        note = (note + "; " if note else "") + f"{seats_short} seat(s) short of N={N}"
         print(f"WARNING: holding {len(retain) + len(new_rows)} names against N={N} — "
-              f"{seats_short} seat(s) unfilled.")
-        if unfunded:
-            note += f"; qualified but unfunded: {','.join(unfunded)}"
-            print(f"   {', '.join(unfunded)} qualified on rank and momentum, but no removal "
-                  f"freed any value to fund the entry (freed={freed:.4f}).\n"
-                  f"   METHODOLOGY §7.3 says only how an entrant is funded BY A REMOVAL. This "
-                  f"is a POLICY GAP, not a price or data problem — a human must close it.")
+              f"{seats_short} seat(s) unfilled.\n"
+              f"   Funding is not the reason (the §7.3 vacancy clause covers that): either no "
+              f"further name cleared the 200d MA, or the candidate pool ran out. Both are "
+              f"rule-driven, and neither is silently acceptable — check the SKIP_MOMENTUM "
+              f"lines above.")
 
     record_review(period, ftd, dt.datetime.now(ET).isoformat(timespec="seconds"),
                   len(retain), len(exits), len(new_rows), turnover, note)
