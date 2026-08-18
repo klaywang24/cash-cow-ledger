@@ -185,6 +185,28 @@ Absolute ranks are used rather than percentiles: when the qualifying pool holds 
   incumbents (**pro-rata distribution preserves the relative weights among incumbents**, so it does not
   violate "never trim the winners").
 
+**Vacancy clause (v1.2, added 2026-08-18).** A seat can also fall vacant with **nothing removed** — the
+twentieth seat burned by FOXA at inception is exactly that, and ERRATA 2026-07-21 promises it is refilled
+to N in January 2027. There `freed = 0`, the rule above cannot apply, and the original implementation left
+the seat **silently empty forever**.
+
+- **Weight**: the entrant takes the weight **this section's existing entry rule already gives it** — its
+  score share of the post-entry constituents, capped at 8%. **No new parameter is introduced**: the seat
+  is empty because of a defect, and **a defect does not get to edit the methodology**.
+- **Funding**: the value required is created by **moving the divisor** (§8). **No incumbent's units are
+  trimmed.**
+- Pro-rata dilution of incumbent units yields **identical weights** with less machinery and is **rejected**:
+  it trims incumbent units, and "a reconstitution never trims an incumbent's units" is an invariant this
+  repository enforces and audits.
+- **The cost, stated rather than hidden**: incumbent **units** are untouched, but incumbent **percentage
+  weights** fall by (1 − W) — a twentieth name cannot appear without everyone's share shrinking. §7.3
+  promises holdings are never trimmed; it never promised a fixed share. Anyone replicating this index with
+  real money must still sell a slice of everything to buy the entrant. **The index is a measurement;
+  replication is a different thing**, and this is where the two part company.
+- **§7.2's momentum veto outranks this clause**: a vacancy is not a licence to buy a falling knife. If no
+  qualified name clears the veto, the seat stays empty, the divisor does not move, and the shortfall is
+  **recorded out loud**.
+
 **Why score-weighted rather than absolute-FCF-weighted**: weighting by absolute FCF systematically
 favors large mature companies (measured: Altria's weight fell from 11.8% to 6.8%, and the max/min spread
 compressed from 16× to 2.3×). A satellite sleeve should bet on **attractiveness**, not **size**.
@@ -196,6 +218,25 @@ Annual turnover above 25% **records an alert**. The alert is a record only and *
 ---
 
 ## 8. Index level
+
+**Level = Σ(units × adjusted close) ÷ divisor. The divisor is 1.0 from inception.**
+
+The divisor moves **only** when the §7.3 vacancy clause fires (an entry with no removal to fund it), and
+it moves by exactly the factor the basket grew by, so that **the level does not jump on the review date**
+— adding a constituent is not a return, and a jump there would corrupt every performance figure spanning
+that date.
+
+- The divisor is looked up by the **trading date the bar belongs to**, never by the clock (same rule as
+  the date label itself, ERRATA 2026-08-06).
+- Divisor changes are **forward-only**, recorded in their own file `data/ledger/divisor.csv`, and **never
+  touch a historical row**; adding a column to an append-only tamper-evident file would itself be a
+  rewrite of history.
+- Every level published before the first adjustment reproduces **unchanged** at divisor 1.0.
+- The divisor is derived from the units **actually written**, not from the pre-rounding ideal: units are
+  stored to 8 decimals, and the theoretical value leaves a ~1e-7 jump in the level. Continuity is the one
+  property this mechanism exists to provide, so it is made **exact** rather than nearly exact.
+
+---
 
 - Base level **100**, starting on the inception date.
 - Computed from **adjusted close prices** (approximating total return including dividends).
@@ -377,7 +418,8 @@ defect most likely to turn into a rule violation six months later.
 | §7.1 Review dates (**first trading day** of January / July) | `src/reconstitute.py::review_due` + register `data/ledger/review_log.csv` | ✅ (corrected 2026-08-18, below) |
 | §7.2 Rank buffer + two-sided momentum veto | `src/reconstitute.py` | ✅ |
 | §7.3 Weighting and "never rebalanced after entry" | `src/build_portfolio.py` / `open_books.py` / `reconstitute.py` | ✅ |
-| §7.3 **Funding an entry into a vacancy with no removal** | — | ⛔ **no such clause**; see open question |
+| §7.3 Funding an entry into a vacancy with no removal | step 4b of `reconstitute.py` + `src/divisor.py` | ✅ (clause added 2026-08-18; 4 samples + mutation) |
+| §8 Divisor (level continuity) | `src/divisor.py` + `daily_level.py` + `data/ledger/divisor.csv` | ✅ |
 | §7.4 Turnover budget alert | `src/reconstitute.py` | ✅ |
 | §8 Index level (units mechanism) | `src/daily_level.py` | ✅ |
 | §9 Tamper-evidence (public repo / Wayback / commit typing) | `.github/workflows/daily.yml` | ✅ |
