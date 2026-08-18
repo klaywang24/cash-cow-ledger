@@ -291,9 +291,22 @@ clock**, so it may be used to veto without violating this rule.
 
 A misattributed alert is as harmful as a missed one: it costs an hour and teaches its reader
 to ignore the next one. On 2026-08-18 the monitor **detected correctly and attributed
-wrongly** — it accused the ledger of fabricating a row when a vendor had a hole. Exit codes
-therefore carry attribution: **1 = the ledger is wrong, 2 = the source cannot be read**, and
-the two are never merged.
+wrongly** — it accused the ledger of fabricating a row when a vendor had a hole.
+
+Exit codes therefore carry **blame and severity as two independent axes**:
+
+| Code | Who is broken | Severity |
+|---|---|---|
+| 0 | — | fine |
+| **1** | **the ledger** | a human is needed now |
+| **2** | **the source**, for under one session | vendor lag; nothing anyone can act on |
+| **3** | **the source**, past one session | **being unable to tell IS the emergency** — the power to verify is gone |
+
+The 2/3 boundary must be a **named parameter** (`monitoring.blind_tolerance_sessions`) with
+its rationale written down: paging on first sight of blindness teaches the reader to ignore
+the monitor, and never paging lets blindness become permanent and silent.
+
+**An unrecognised code is treated as failure. An unknown state is never an all-clear.**
 
 ### 11.3 Patient out: response is graded by reversibility
 
@@ -308,6 +321,17 @@ fatigue and unattended runs. The grading criterion is one question: **can this s
 
 **Boundary: "patient out" governs forward actions only; it never excuses a published error.**
 An identified identification error is corrected immediately under §9.1.
+
+**The channel is part of the response and must be graded with it.** Attribution worked out
+inside the checker and then delivered through the same red failure email is attribution the
+reader never receives — the grading dies at the last metre. That is exactly what happened on
+2026-08-18: the checker had already separated ledger from vendor, while GitHub rendered every
+non-zero exit as `All jobs have failed`, indistinguishable without opening the run, and a
+vendor fault nobody could act on paged as loudly as a corrupted ledger.
+
+So: **halt-grade conditions fail the job (they page); shout-grade conditions raise a warning
+that lives in the run and sends no mail; and there must be an automatic escalation path** so
+that "shout" can never stay silent indefinitely.
 
 ### 11.4 Acceptance: a gate never seen to go red does not exist
 

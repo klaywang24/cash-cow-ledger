@@ -18,9 +18,18 @@ Exit codes carry ATTRIBUTION, not just severity (METHODOLOGY §11):
   0 — fresh, or not yet at inception
   1 — THE LEDGER is wrong: stale tail, a gap in the middle, or a future-dated row.
       A human is needed now.
-  2 — THE SOURCE is unreadable, so freshness cannot be established either way. Deliberately
-      non-zero — a monitor that cannot see and stays quiet is indistinguishable from a green
-      one — but it says nothing against the ledger.
+  2 — THE SOURCE is unreadable and has been for less than one completed session. Vendor lag.
+      Non-zero so it is never mistaken for a clean bill of health, but the workflow does not
+      page: this says nothing against the ledger and there is nothing for a human to do.
+  3 — THE SOURCE is unreadable and a later session has come and gone without it healing.
+      No longer lag: the ability to verify the ledger at all has been lost, and that is an
+      emergency in its own right even though the ledger is still not accused.
+
+Severity and blame are separate axes, and the notification channel has to carry both — §11.3
+grades the RESPONSE by reversibility, and the channel is part of the response. Reporting a
+reversible, un-actionable condition through the same red failure email as a corrupt ledger
+is how a monitor teaches its reader to ignore it; that lesson is learned once and never
+unlearned.
 
 Keeping 1 and 2 apart is the whole point. On 2026-08-18 this monitor twice reported a real
 problem and aimed it at the wrong party, telling its reader an honest row was fabricated
@@ -167,7 +176,17 @@ def verdict_from(traded, holes, have, last, inception):
         return 1, "GAP", {"missing": missing}
     blinding = [h for h in holes if h > expected]
     if blinding:
-        return 2, "BLIND_HOLE", {"blinding": blinding, "expected": expected}
+        # Blindness is graded by how long it has lasted, measured in completed sessions
+        # rather than hours. A hole that is still the most recent completed session is
+        # vendor lag; one that survived a later session is the vendor declining to backfill,
+        # and at that point the ability to verify the ledger at all has been lost — which is
+        # an emergency in its own right, however innocent the ledger is.
+        sessions = sorted(set(traded) | set(holes))
+        age = len([d for d in sessions if d >= min(blinding)])
+        tolerance = cfg["monitoring"].get("blind_tolerance_sessions", 1)
+        code = 2 if age <= tolerance else 3
+        return code, "BLIND_HOLE", {"blinding": blinding, "expected": expected, "age": age,
+                                    "tolerance": tolerance}
     if last > expected:
         return 1, "FUTURE_DATED", {"expected": expected}
     return 0, "FRESH", {"expected": expected, "holes": holes}
@@ -222,12 +241,24 @@ def main():
               f"needs a deliberate backfill decision — see METHODOLOGY §9.1; do not let a later "
               f"run paper over it.")
     elif label == "BLIND_HOLE":
-        print(f"BLIND (source): the price source has no data for {', '.join(info['blinding'])}, "
+        persistent = code == 3
+        head = ("BLIND (source, PERSISTENT)" if persistent else "BLIND (source, transient)")
+        print(f"{head}: the price source has no data for {', '.join(info['blinding'])}, "
               f"which is after the last day it does carry ({info['expected']}).\n   The exchange "
               f"traded on those dates — the payload has their timestamps and null fields — so the "
               f"calendar cannot be trusted past {info['expected']} and freshness is UNVERIFIABLE "
               f"right now.\n   The ledger's last row is {last}. NOTHING HERE SAYS IT IS WRONG; "
-              f"the fault is the vendor's. Re-run once the source backfills.")
+              f"the fault is the vendor's.")
+        if persistent:
+            print(f"   ESCALATED: the hole has now survived {info['age']} completed sessions "
+                  f"(tolerance {info['tolerance']}). This is no longer vendor lag — the ability "
+                  f"to verify the ledger at all has been lost, and that is an emergency even "
+                  f"though the ledger is not accused. A human is needed.")
+        else:
+            print(f"   Not escalated: the hole is {info['age']} session old (tolerance "
+                  f"{info['tolerance']}) — vendor lag, and paging on first sight is how a "
+                  f"monitor teaches its reader to ignore it. It escalates on its own if a "
+                  f"later session comes and goes with the hole still there.")
     elif label == "FUTURE_DATED":
         print(f"FUTURE-DATED (ledger): the last row is dated {last}, but the last completed US "
               f"trading day is {info['expected']} and the source has no hole after it. This is an "
@@ -333,9 +364,21 @@ def selftest():
     INC = "2026-07-20"
     verdicts = [
         ("🔴 2026-08-18 事故重演：源对 08-17 有洞，台账 08-17 诚实"
-         " ⇒ 必须 BLIND 退 2 指向源，绝不能 FUTURE_DATED 退 1 指控台账",
+         " ⇒ 必须 BLIND 指向源，绝不能 FUTURE_DATED 退 1 指控台账",
          (["2026-08-14"], ["2026-08-17"]), {"2026-08-14", "2026-08-17"}, "2026-08-17",
          (2, "BLIND_HOLE")),
+        ("+ 瞬时失明：洞就是最近一个已完结交易日 ⇒ 退 2，不升级、不发邮件",
+         (["2026-08-14"], ["2026-08-17"]), {"2026-08-14", "2026-08-17"}, "2026-08-17", (2, "BLIND_HOLE")),
+        # 失明只可能发生在尾部：一旦某个更晚的交易日有了数据，expected 就越过了洞，
+        # 那个洞就变成「缺口」问题而不是「看不见」问题。所以「持续」的真实形态是
+        # 洞连着两天没补上，而不是后面那天补上了。
+        ("🔴 持续失明：连着两个交易日都是空的 ⇒ 退 3 升级。"
+         "「测不了」拖久了本身就是事故，不许无限容忍",
+         (["2026-08-14"], ["2026-08-17", "2026-08-18"]), {"2026-08-14", "2026-08-17"}, "2026-08-17",
+         (3, "BLIND_HOLE")),
+        ("+ 洞后面那天有数据了 ⇒ 不再是失明，回到普通的缺口/新鲜度判断",
+         (["2026-08-14", "2026-08-18"], ["2026-08-17"]), {"2026-08-14", "2026-08-17", "2026-08-18"},
+         "2026-08-18", (0, "FRESH")),
         ("+ 真·未来日期造假：源无洞，台账多出一行 ⇒ FUTURE_DATED 退 1（ERRATA 08-06 那道闸不许丢）",
          (["2026-08-14"], []), {"2026-08-14", "2026-08-17"}, "2026-08-17", (1, "FUTURE_DATED")),
         ("+ 真·陈旧：管线静默死亡 ⇒ STALE 退 1",

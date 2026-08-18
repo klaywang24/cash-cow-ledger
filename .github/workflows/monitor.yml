@@ -39,5 +39,32 @@ jobs:
       - name: monitor selftest
         run: python -m src.check_freshness --selftest
 
+      # The channel is part of the response, and §11.3 grades responses by reversibility.
+      # Until 2026-08-18 every non-zero exit produced the same red "All jobs have failed"
+      # email, so the attribution the checker had worked out — ledger vs vendor — died at
+      # the last metre and the reader could not triage without opening the run. Worse, a
+      # vendor hole nobody can act on paged exactly as loudly as a corrupted ledger, which
+      # is precisely how a monitor teaches its reader to ignore it.
+      #
+      #   0  fresh                         notice, pass
+      #   1  THE LEDGER is wrong           error, FAIL -> email, act now
+      #   2  source blind, < 1 session     warning, pass -> visible in the run, no email
+      #   3  source blind, and it stuck    error, FAIL -> email; verification itself is lost
+      #   *  anything else                 error, FAIL — an unrecognised state is never green
       - name: check ledger freshness
-        run: python -m src.check_freshness
+        shell: bash
+        run: |
+          set +e
+          python -m src.check_freshness | tee /tmp/freshness.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          { echo "### Freshness monitor (exit ${code})"; echo '```'; cat /tmp/freshness.txt; echo '```'; } \
+            >> "$GITHUB_STEP_SUMMARY"
+          head1=$(head -1 /tmp/freshness.txt)
+          case "$code" in
+            0) echo "::notice title=Ledger fresh::${head1}" ;;
+            1) echo "::error title=LEDGER FAULT — a human is needed now::${head1}"; exit 1 ;;
+            2) echo "::warning title=Source blind (transient) — the ledger is NOT accused::${head1}" ;;
+            3) echo "::error title=SOURCE BLIND TOO LONG — the ledger cannot be verified at all::${head1}"; exit 1 ;;
+            *) echo "::error title=Monitor returned an unrecognised exit code ${code}::Treated as failure on purpose — an unknown state is never an all-clear."; exit 1 ;;
+          esac

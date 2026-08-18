@@ -121,6 +121,16 @@ monitoring:
   # NOTE: the test is the FRESHNESS OF THE LEDGER DATA ITSELF, not any workflow's self-report —
   #       a workflow reporting "success" while producing nothing is the classic silent death.
   freshness: "trading-day"
+  # How long the price source may be unreadable before blindness stops being noise and
+  # becomes the emergency itself. Measured in COMPLETED SESSIONS since the unreadable day,
+  # not hours: a vendor hole that the next session's data has not healed is not lag.
+  #   1 = the hole is the most recent completed session -> transient, warn but do not page
+  #   2+ = a later session came and went and the hole is still there -> the ability to
+  #        verify the ledger at all has been lost, which is an emergency in its own right
+  # 2026-08-18: Yahoo served an all-null bar for an ordinary Monday for hours. Paging on
+  # the first sight of that is how a monitor teaches its reader to ignore it; never paging
+  # is how blindness becomes permanent and silent. This is the line between the two.
+  blind_tolerance_sessions: 1
 
 # ---- Missing-data policy (hard constraint) ----
 data_policy:
