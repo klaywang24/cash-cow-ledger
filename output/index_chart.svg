@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 372" font-family="ui-sans-serif,system-ui,sans-serif">
 <text x="56" y="22" font-size="15" font-weight="600" fill="#8b949e">Book One — index level</text>
 <text x="56" y="40" font-size="12" fill="#8b949e" opacity="0.8">base 100 at inception 2026-07-20 · score-weighted · never rebalanced after entry</text>
-<text x="56" y="58" font-size="11.5" fill="#8b949e" opacity="0.62">24 trading days · +3.80% since inception · max drawdown −4.27% · 19 holdings · as of 2026-08-20</text>
+<text x="56" y="58" font-size="11.5" fill="#8b949e" opacity="0.62">25 trading days · +4.78% since inception · max drawdown −4.27% · 19 holdings · as of 2026-08-21</text>
 <line x1="56" y1="338.0" x2="834" y2="338.0" stroke="#8b949e" stroke-opacity="0.18"/>
 <text x="48" y="342.0" font-size="11" fill="#8b949e" text-anchor="end">94.0</text>
 <line x1="56" y1="271.5" x2="834" y2="271.5" stroke="#8b949e" stroke-opacity="0.18"/>
@@ -15,22 +15,20 @@
 <line x1="56" y1="214.9" x2="834" y2="214.9" stroke="#8b949e" stroke-opacity="0.5" stroke-dasharray="4 4"/>
 <text x="60" y="208.9" font-size="11" fill="#8b949e" text-anchor="start" opacity="0.8">base 100</text>
 <text x="56.0" y="362" font-size="11" fill="#8b949e" text-anchor="middle">07-20</text>
-<text x="157.5" y="362" font-size="11" fill="#8b949e" text-anchor="middle">07-23</text>
-<text x="259.0" y="362" font-size="11" fill="#8b949e" text-anchor="middle">07-28</text>
-<text x="360.4" y="362" font-size="11" fill="#8b949e" text-anchor="middle">07-31</text>
-<text x="461.9" y="362" font-size="11" fill="#8b949e" text-anchor="middle">08-05</text>
-<text x="563.4" y="362" font-size="11" fill="#8b949e" text-anchor="middle">08-10</text>
-<text x="664.9" y="362" font-size="11" fill="#8b949e" text-anchor="middle">08-13</text>
-<text x="766.3" y="362" font-size="11" fill="#8b949e" text-anchor="middle">08-18</text>
-<text x="834.0" y="362" font-size="11" fill="#8b949e" text-anchor="middle">08-20</text>
+<text x="185.7" y="362" font-size="11" fill="#8b949e" text-anchor="middle">07-24</text>
+<text x="315.3" y="362" font-size="11" fill="#8b949e" text-anchor="middle">07-30</text>
+<text x="445.0" y="362" font-size="11" fill="#8b949e" text-anchor="middle">08-05</text>
+<text x="574.7" y="362" font-size="11" fill="#8b949e" text-anchor="middle">08-11</text>
+<text x="704.3" y="362" font-size="11" fill="#8b949e" text-anchor="middle">08-17</text>
+<text x="834.0" y="362" font-size="11" fill="#8b949e" text-anchor="middle">08-21</text>
 <defs><clipPath id="above"><rect x="56" y="72" width="778" height="142.9"/></clipPath><clipPath id="below"><rect x="56" y="214.9" width="778" height="123.1"/></clipPath></defs>
-<polygon points="56.0,214.9 56.0,214.9 89.8,245.0 123.7,268.8 157.5,302.8 191.3,260.3 225.1,205.0 259.0,133.2 292.8,107.2 326.6,179.1 360.4,197.3 394.3,172.5 428.1,133.6 461.9,140.3 495.7,130.5 529.6,147.5 563.4,132.0 597.2,154.2 631.0,171.9 664.9,112.1 698.7,128.0 732.5,178.8 766.3,153.5 800.2,125.6 834.0,136.8 834.0,214.9" fill="#a0392f" fill-opacity="0.14" clip-path="url(#above)"/>
-<polygon points="56.0,214.9 56.0,214.9 89.8,245.0 123.7,268.8 157.5,302.8 191.3,260.3 225.1,205.0 259.0,133.2 292.8,107.2 326.6,179.1 360.4,197.3 394.3,172.5 428.1,133.6 461.9,140.3 495.7,130.5 529.6,147.5 563.4,132.0 597.2,154.2 631.0,171.9 664.9,112.1 698.7,128.0 732.5,178.8 766.3,153.5 800.2,125.6 834.0,136.8 834.0,214.9" fill="#8b949e" fill-opacity="0.14" clip-path="url(#below)"/>
-<polyline points="56.0,214.9 89.8,245.0 123.7,268.8 157.5,302.8 191.3,260.3 225.1,205.0 259.0,133.2 292.8,107.2 326.6,179.1 360.4,197.3 394.3,172.5 428.1,133.6 461.9,140.3 495.7,130.5 529.6,147.5 563.4,132.0 597.2,154.2 631.0,171.9 664.9,112.1 698.7,128.0 732.5,178.8 766.3,153.5 800.2,125.6 834.0,136.8" fill="none" stroke="#a0392f" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="157.5" cy="302.8" r="2.5" fill="#a0392f" fill-opacity="0.55"/>
-<text x="157.5" y="318.8" font-size="11" fill="#8b949e" text-anchor="middle">95.73</text>
-<circle cx="292.8" cy="107.2" r="2.5" fill="#a0392f" fill-opacity="0.55"/>
-<text x="292.8" y="98.2" font-size="11" fill="#8b949e" text-anchor="middle">105.23</text>
-<circle cx="834.0" cy="136.8" r="3.5" fill="#a0392f"/>
-<text x="826.0" y="126.8" font-size="12" font-weight="600" fill="#a0392f" text-anchor="end">103.80</text>
+<polygon points="56.0,214.9 56.0,214.9 88.4,245.0 120.8,268.8 153.2,302.8 185.7,260.3 218.1,205.0 250.5,133.2 282.9,107.2 315.3,179.1 347.8,197.3 380.2,172.5 412.6,133.6 445.0,140.3 477.4,130.5 509.8,147.5 542.2,132.0 574.7,154.2 607.1,171.9 639.5,112.1 671.9,128.0 704.3,178.8 736.8,153.5 769.2,125.6 801.6,136.8 834.0,116.5 834.0,214.9" fill="#a0392f" fill-opacity="0.14" clip-path="url(#above)"/>
+<polygon points="56.0,214.9 56.0,214.9 88.4,245.0 120.8,268.8 153.2,302.8 185.7,260.3 218.1,205.0 250.5,133.2 282.9,107.2 315.3,179.1 347.8,197.3 380.2,172.5 412.6,133.6 445.0,140.3 477.4,130.5 509.8,147.5 542.2,132.0 574.7,154.2 607.1,171.9 639.5,112.1 671.9,128.0 704.3,178.8 736.8,153.5 769.2,125.6 801.6,136.8 834.0,116.5 834.0,214.9" fill="#8b949e" fill-opacity="0.14" clip-path="url(#below)"/>
+<polyline points="56.0,214.9 88.4,245.0 120.8,268.8 153.2,302.8 185.7,260.3 218.1,205.0 250.5,133.2 282.9,107.2 315.3,179.1 347.8,197.3 380.2,172.5 412.6,133.6 445.0,140.3 477.4,130.5 509.8,147.5 542.2,132.0 574.7,154.2 607.1,171.9 639.5,112.1 671.9,128.0 704.3,178.8 736.8,153.5 769.2,125.6 801.6,136.8 834.0,116.5" fill="none" stroke="#a0392f" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="153.2" cy="302.8" r="2.5" fill="#a0392f" fill-opacity="0.55"/>
+<text x="153.2" y="318.8" font-size="11" fill="#8b949e" text-anchor="middle">95.73</text>
+<circle cx="282.9" cy="107.2" r="2.5" fill="#a0392f" fill-opacity="0.55"/>
+<text x="282.9" y="98.2" font-size="11" fill="#8b949e" text-anchor="middle">105.23</text>
+<circle cx="834.0" cy="116.5" r="3.5" fill="#a0392f"/>
+<text x="826.0" y="106.5" font-size="12" font-weight="600" fill="#a0392f" text-anchor="end">104.78</text>
 </svg>
