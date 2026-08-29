@@ -9,6 +9,3 @@ data/private/
 HANDOFF.zh.md
 README-项目地图.md
 _git备份/
-
-# local fallback alarm log
-ops/fallback.log
