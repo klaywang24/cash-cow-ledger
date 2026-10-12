@@ -6,12 +6,16 @@ name: daily index
 # never touches the rule files.
 on:
   schedule:
-    - cron: "30 21 * * 1-5"   # 21:30 UTC, shortly after the US close (Mon-Fri)
-    # Backup trigger two hours later (23:30 UTC = 19:30 / 18:30 New York, same trading day).
+    - cron: "30 17 * * 1-5"   # 17:30 New York, shortly after the US close (Mon-Fri)
+      timezone: "America/New_York"
+    # Pinned to Eastern since 2026-10-12 (was 21:30 UTC, which drifted to 16:30 ET every
+    # winter -- thirty minutes after the close, before the closing price had settled).
+    # Backup trigger two hours later (19:30 New York, same trading day; was 23:30 UTC).
     # Scheduled events are best-effort: a nine-hour Actions incident swallowed the primary
     # trigger on 2026-08-06. The pipeline is idempotent — if the primary already recorded
     # the day, this run reads "already recorded, skipping" and commits nothing.
-    - cron: "30 23 * * 1-5"
+    - cron: "30 19 * * 1-5"
+      timezone: "America/New_York"
   workflow_dispatch:
 
 permissions:
