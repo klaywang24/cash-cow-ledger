@@ -37,7 +37,7 @@ when the truth was a vendor hole. A misattributed alert costs an hour and teache
 to ignore the next one, which is exactly how a monitor dies.
 """
 from __future__ import annotations
-import sys, csv, json, time, pathlib, urllib.request, datetime as dt
+import sys, csv, json, os, time, pathlib, urllib.request, datetime as dt
 from zoneinfo import ZoneInfo
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import yaml
@@ -51,6 +51,21 @@ UA = {"User-Agent": "Mozilla/5.0 (cash-cow-ledger freshness monitor)"}
 # just a stale tail, and wide enough for the reconstitution calendar to find the first
 # trading day of a review month. Same payload serves both — one definition of a session.
 SPY_URL = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=3mo&interval=1d"
+
+
+def evaluation_time(now_et, event_name=None):
+    """Return the clock boundary the monitor is supposed to judge.
+
+    Scheduled monitors are checks for sessions completed before the current New York
+    calendar day. GitHub can start a scheduled job many hours late; if a 09:00 job finally
+    starts after 16:05, using the actual start time makes it race the 17:30 daily writer and
+    falsely accuse the ledger of missing today's row. Manual dispatches keep the live clock
+    so an operator can deliberately verify the current session after the close.
+    """
+    event_name = event_name if event_name is not None else os.environ.get("GITHUB_EVENT_NAME", "")
+    if event_name == "schedule":
+        return now_et.replace(hour=0, minute=0, second=0, microsecond=0)
+    return now_et
 
 
 def sessions_from(res):
@@ -204,7 +219,9 @@ def main():
               "but the fault is the SOURCE, not the ledger. Nothing here says the ledger is wrong.")
         return 2
 
-    traded, holes = calendar_from(res, dt.datetime.now(ET))
+    now_et = dt.datetime.now(ET)
+    judged_at = evaluation_time(now_et)
+    traded, holes = calendar_from(res, judged_at)
     if not traded:
         print("BLIND (source): the payload carries no populated session at all.\n"
               "   The monitor cannot see; it is not reporting that nothing happened.")
@@ -309,6 +326,9 @@ def selftest():
         ("+ 今天收盘后算完成：16:30 跑，今天那根算数",
          NORMAL + [bar("2026-08-17", 3e7, 776.0, 772.67), bar("2026-08-18", 3e7, 773.0, 775.0)],
          at("2026-08-18T16:30"), "2026-08-18"),
+        ("+ 延迟的定时监控：09:00 班拖到 16:30 才启动，仍只检查今天以前的交易日",
+         NORMAL + [bar("2026-08-17", 3e7, 776.0, 772.67), bar("2026-08-18", 3e7, 773.0, 775.0)],
+         evaluation_time(at("2026-08-18T16:30"), "schedule"), "2026-08-17"),
         # These three stay as they are, and the reason is worth stating: they were never
         # wrong. last_completed_from answers "the last day the payload CARRIES DATA for",
         # and for a null bar that answer really is 08-14. The 2026-08-18 defect was that
