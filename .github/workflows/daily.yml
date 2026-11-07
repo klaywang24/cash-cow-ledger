@@ -95,6 +95,11 @@ jobs:
           # out of the ledger. $(date -u +%F) named the runner's UTC day instead, which
           # drifts a day ahead of New York after 20:00 ET.
           git commit -m "data: daily index level $(tail -1 data/ledger/index_level.csv | cut -d, -f1)"
+          # Retry the same commit after a transient remote ref-write failure.
+          for delay in 5 15; do
+            if git push; then exit 0; fi
+            sleep "$delay"
+          done
           git push
 
       # Third-party timestamp anchor. Wayback is routinely flaky; no failure may affect the pipeline.
