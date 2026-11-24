@@ -55,7 +55,7 @@ def fetch_closes(tickers):
     import yfinance as yf
     out, dates = {}, {}
     data = yf.download(tickers, period="5d", auto_adjust=True,
-                       progress=False, group_by="ticker")
+                       progress=False, group_by="ticker", threads=False)
     for t in tickers:
         try:
             s = data[t]["Close"].dropna() if len(tickers) > 1 else data["Close"].dropna()

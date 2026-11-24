@@ -103,3 +103,8 @@ retroactively — rewriting an opening entry would defeat the point of a forward
 record. Published levels are correct for the book as recorded. The vacancy persists
 until the January 2027 review, when the standard §7 entry rules (rank ≤ 20, momentum
 gate) fill the book back to N = 20.
+
+
+## 2026-11-23 · Download cache lock
+
+The daily download reported MO OperationalError(database is locked), leaving no usable close. Downloads now run serially to avoid concurrent cache access. Prices, date checks and historical rows are unchanged. The original Yahoo source supplied the recovery prices.

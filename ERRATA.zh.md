@@ -78,3 +78,8 @@
 GRMN **不**追溯补入:回改开账记录会让前向台账失去存在的意义。已发布的点位对入册的
 这本账而言是正确的。空席保留到 2027 年 1 月的调仓日,由 §7 的标准入册规则
 (名次 ≤ 20 加动量闸)把成分补回 N = 20。
+
+
+## 2026-11-23 · Download cache lock
+
+The daily download reported MO OperationalError(database is locked), leaving no usable close. Downloads now run serially to avoid concurrent cache access. Prices, date checks and historical rows are unchanged. The original Yahoo source supplied the recovery prices.
